@@ -1,0 +1,178 @@
+AI Sales & Support Agent SaaS — Progress Notes
+Last updated: 2026-09-27 (end of day)
+
+====================================================
+STATUS: Phase 1, Phase 2, and Phase 3 are CODE-COMPLETE.
+Verified via automated test suite only (72/72 tests passing,
+run against SQLite with config.settings.test).
+NOT yet verified live against real MySQL / Redis / Celery / OpenAI —
+same blockers as before, deliberately skipped again today (see PENDING).
+====================================================
+
+PHASE 1 (done)
+--------------
+- Django project at backend/config. Apps: core, accounts, tenants, agents,
+  knowledge, conversations, ai.
+- JWT auth: register / login / refresh (rotating + blacklisted) / logout.
+- Business + BusinessMembership tenant model. Strict tenant isolation via
+  TenantScopedQuerySetMixin + IsBusinessMember (request.business resolved
+  server-side only, never from client input). Mandatory "Business A can't
+  touch Business B" test suite passes.
+- Agent CRUD with goal/tone/type config (sales, customer_support,
+  sales_and_support, lead_generation, information). Default AgentTool
+  set auto-provisioned per goal.
+- Knowledge: manual/FAQ text entry. KnowledgeRetriever abstraction
+  (MySQLKeywordRetriever as Phase 1 implementation).
+- AI layer: AIProvider abstraction (OpenAIProvider real, LocalModelProvider
+  stub), instruction-hierarchy prompt builder (system > agent config >
+  knowledge > customer message — prompt injection guarded), ToolService
+  (every AI-proposed tool call independently validated/executed server-side,
+  never trusted blindly), single orchestrator.receive_message() pipeline
+  used by playground today and every future channel.
+- Conversations + Playground chat endpoint.
+- React dashboard: auth pages, agent list/config form, knowledge manager,
+  playground chat UI. Axios service layer, JWT access token in memory,
+  refresh token in sessionStorage (documented tradeoff, see
+  frontend/src/services/tokenStore.js comments).
+
+PHASE 2 (done)
+--------------
+- Leads app: LeadStage / Lead / LeadActivity models. 8-stage default
+  pipeline (New Lead -> Qualified -> Interested -> Demo Requested ->
+  Proposal -> Negotiation -> Won / Lost) auto-seeded per business via
+  signal. Server-side lead scoring (never trusts AI's self-reported score).
+- AI tools wired to real actions: create_lead, update_lead, request_demo,
+  request_callback, create_ticket (logged as a lead activity — no separate
+  Ticket model yet, deliberately deferred). create_payment_link still
+  always requires human approval, not executed.
+- Escalation rules (apps/ai/escalation.py): business-configured trigger
+  phrases on Agent.escalation_rules force HUMAN_HANDOFF regardless of what
+  the AI itself decides.
+- Human handoff dashboard flow: conversation list supports ?status= filter,
+  plus takeover/resolve endpoints and a frontend inbox page.
+- Async document processing: PDF/DOCX/TXT/CSV upload + URL scraping via
+  Celery (apps/knowledge/extractors.py + tasks.py). Uploads return
+  immediately as "pending"; a Celery worker extracts/chunks/embeds in the
+  background. 15MB upload limit + content-type validation enforced
+  server-side.
+- RAG upgrade: EmbeddingRetriever (cosine similarity over embeddings stored
+  in KnowledgeChunk.embedding) + HybridRetriever that falls back to keyword
+  search when no OpenAI API key is configured. get_retriever() is still the
+  single swap point — orchestrator code unchanged.
+- Frontend: Leads table with stage changes, Handoff inbox with
+  takeover/resolve buttons, Knowledge page now has text/FAQ, file upload,
+  and URL ingestion tabs.
+
+PHASE 3 (first cut — done today, 2026-09-26)
+--------------
+- New apps/apikeys app: ApiKey model (business-scoped, sha256-hashed
+  secret, raw key shown exactly once at creation — same show-once idiom
+  as Stripe/GitHub keys). ApiKeyAuthentication (DRF auth class, reads
+  Authorization: Bearer <key> or X-API-Key) + HasApiKey permission set
+  request.business/request.api_key, mirroring how IsBusinessMember does
+  it for JWT dashboard requests.
+- Public Chat API: POST /api/v1/public/chat/, authenticated by ApiKey
+  (not JWT). Reuses the exact same _run_chat()/orchestrator.receive_message()
+  pipeline as the playground — refactored PlaygroundChatView's body into
+  a shared _run_chat() helper in apps/conversations/views.py so playground,
+  public API, and widget chat can never drift into 3 different behaviors.
+  Conversation.channel=API, rate-limited per-API-key (not per-IP) via
+  custom ApiKeyRateThrottle (apps/apikeys/throttling.py).
+- Website widget endpoints (public, no auth — Agent.public_widget_id was
+  already reserved for this in Phase 1): GET
+  /api/v1/widget/<widget_id>/config/ (name/greeting/tone/language only,
+  nothing sensitive) and POST /api/v1/widget/<widget_id>/chat/
+  (channel=WEBSITE, session_id becomes external_customer_ref). Rate-limited
+  by IP via WidgetRateThrottle since there's no secret to key on.
+- Usage tracking: UsageEvent model (apps.apikeys) logs one row per AI
+  response across every channel — business, agent, api_key (nullable),
+  channel, input/output tokens. GET /api/v1/usage/summary/ aggregates
+  totals + breakdown by channel for the dashboard.
+- New throttle scopes in settings: "public_api": "60/min", "widget": "20/min".
+- Frontend: ApiKeysPage (frontend/src/pages/settings/ApiKeysPage.jsx) —
+  create/list/revoke keys, one-time key reveal banner. Added to sidebar
+  nav + routes. apiKeysApi.js service layer following existing pattern.
+  `npm run build` verified clean.
+- 12 new backend tests (apps/apikeys/tests, apps/conversations/tests/
+  test_public_chat_and_widget.py) covering: key creation never leaks raw
+  key on list, cross-tenant isolation on revoke, public chat rejects
+  missing/invalid/revoked keys (403 — DRF default without a WWW-Authenticate
+  header, not 401), cross-tenant agent access blocked, widget config is
+  public/unauthenticated, widget chat creates a WEBSITE conversation and a
+  UsageEvent with api_key=None.
+- NOT done yet from original Phase 3 scope (deferred, not urgent):
+  rate limiting tied to a business's paid plan tier (currently flat
+  per-scope rates for everyone), any billing/usage-cap enforcement.
+
+PHASE 3 continued (done today, 2026-09-27) — widget embed
+--------------
+- apps/core/static/widget/widget.js: standalone vanilla-JS embeddable
+  chat widget (no framework/build step — a customer site just drops in a
+  <script> tag). Floating bubble -> chat window, calls the existing
+  GET .../widget/<id>/config/ and POST .../widget/<id>/chat/ endpoints.
+  Session id persisted in localStorage, conversation id in sessionStorage
+  (so a page reload keeps the same session but starts a fresh
+  conversation, matching how the widget channel is meant to behave).
+  Served automatically by Django's static file handling in dev
+  (apps.core is in INSTALLED_APPS, AppDirectoriesFinder picks it up) —
+  in prod this needs `collectstatic` + whatever serves STATIC_ROOT,
+  same as every other static asset, nothing widget-specific to set up.
+- apps/core/middleware.py: WidgetCorsMiddleware — the widget runs on
+  arbitrary customer domains we can't put in CORS_ALLOWED_ORIGINS, so
+  only requests under /api/v1/widget/ get a wildcard
+  Access-Control-Allow-Origin (incl. answering the POST preflight
+  directly, before it reaches DRF/auth). Every other endpoint keeps
+  going through corsheaders' normal allow-list — verified with a test
+  that GET /api/v1/agents/ does NOT get the wildcard header.
+- Frontend: AgentFormPage now shows a "Embed on your website" card (only
+  once an agent has been saved / has a public_widget_id) with the exact
+  copy-pasteable <script> snippet, using apiClient's API_BASE_URL to
+  build the widget's data-api-base.
+- 3 new backend tests for the CORS middleware (wildcard on widget GET,
+  preflight OPTIONS answered with 204 + wildcard, dashboard endpoints
+  unaffected). 72/72 tests passing, frontend build clean.
+- Phase 3 is now feature-complete per the original roadmap item (API
+  keys, public Chat API, website widget, usage tracking, rate limiting)
+  modulo the plan-tier/billing enforcement noted above, which was never
+  actually in scope for "Phase 3" per the original architecture doc —
+  that's Phase 6 (billing) territory.
+
+PENDING / BLOCKED — DO THIS FIRST TOMORROW
+-------------------------------------------
+1. MySQL is NOT yet set up. Local MySQL80 service is running but the
+   ai_sales database/user don't exist yet — I don't have the root
+   password so I can't do this myself.
+   -> User needs to run: backend/scripts/setup_mysql.sql
+      (via `mysql -u root -p < backend/scripts/setup_mysql.sql` or any
+      MySQL client / Workbench)
+   -> Then update MYSQL_PASSWORD in backend/.env to match whatever
+      password was used in that script (default placeholder is
+      'change-me' — change it to something real).
+2. OPENAI_API_KEY in backend/.env is still the placeholder "sk-changeme".
+   Needs a real key to test actual AI responses / real embeddings live
+   (tests mock this, so the test suite passing does NOT prove this works).
+3. Once 1 and 2 are done, next session should:
+   a. Run `python manage.py migrate` against real MySQL.
+   b. Start a Celery worker: `celery -A config worker -l info --pool=solo`
+      (Redis already confirmed running on port 6379, no setup needed there).
+   c. Do a real end-to-end smoke test: register -> create agent -> upload
+      a real PDF/DOCX file -> confirm Celery processes it to "ready" ->
+      chat with the agent in the playground and get a real AI response.
+4. After that live verification (incl. a real widget.js embed test in an
+   actual HTML page, and a real API-key curl call to /api/v1/public/chat/
+   — both are only test-suite-verified so far, not live), move to PHASE 4
+   per the original roadmap.
+
+OTHER NOTES
+-----------
+- future_possibilities.txt (same folder) has a note about wanting a
+  WhatsApp chatbot integration — that maps to Phase 5 (integrations) in
+  the original roadmap, not urgent now.
+- Full architecture document was presented and approved before any code
+  was written — don't need to redo that, just keep following it phase by
+  phase (Phase 3 -> 4 -> 5 -> 6 per the original roadmap).
+- Working directory: d:\My Projects\ai_sales
+    backend/  — Django project, venv already created at backend/venv
+    frontend/ — Vite + React dashboard, node_modules already installed
+- requirements.txt is kept up to date via `pip freeze` after each dependency
+  install — no need to guess versions, just read backend/requirements.txt.
