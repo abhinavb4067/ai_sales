@@ -209,10 +209,32 @@ PHASE 4 (first cut — billing & subscriptions, done today, 2026-09-28)
     usage limit check hits MySQL/SQLite directly (a COUNT query per chat
     request). Cheap at current scale; would need Redis counters + Celery
     reconciliation before this becomes a bottleneck.
-  - max_agents / max_knowledge_documents / max_team_members are stored on
-    Plan but NOT YET enforced anywhere (only max_messages_per_month is
-    checked, in the chat pipeline). Agent creation, knowledge upload, and
-    team invites don't consult the plan yet.
+  - max_agents / max_knowledge_documents enforced today (see below).
+    max_team_members still isn't — there's no invite/add-member endpoint
+    at all yet (apps/tenants only has a read-only membership list), so
+    there's nothing to gate. Enforcing it is a no-op until that endpoint
+    exists.
+
+PHASE 4 continued (done today, 2026-09-29) — remaining plan-limit enforcement
+--------------
+- apps/billing/services.py: new check_plan_limit(business, limit_field,
+  current_count, resource_name) — generic per-resource cap check
+  (contrast with enforce_subscription_and_limits, which is per-message
+  and called every chat turn; this is called once at creation time for
+  resources that accumulate). Same "None = unlimited" convention as every
+  other Plan field. Raises APIError(code="PLAN_LIMIT_REACHED", 402).
+- Wired into AgentViewSet.perform_create (apps/agents/views.py) — counts
+  existing agents for the business against plan.max_agents before create.
+- Wired into KnowledgeDocumentViewSet.perform_create
+  (apps/knowledge/views.py) — counts existing KnowledgeDocument rows for
+  the business against plan.max_knowledge_documents before create (checked
+  before either the manual-text or async-file/URL ingestion path runs).
+- 4 new tests (apps/agents/tests, apps/knowledge/tests): agent creation
+  blocked at the starter plan's max_agents=1, allowed again after
+  activate_subscription() switches to growth; document creation blocked
+  at max_knowledge_documents=10. 85/85 tests passing overall.
+- max_team_members remains unenforced — no invite endpoint exists to gate
+  (see above).
 
 PENDING / BLOCKED — DO THIS FIRST TOMORROW
 -------------------------------------------

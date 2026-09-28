@@ -30,6 +30,19 @@ class KnowledgeIngestionTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_document_creation_blocked_once_plan_limit_reached(self):
+        # Starter plan (the default trial plan) allows max_knowledge_documents=10.
+        for i in range(10):
+            ingest_manual_text(business=self.business, agent=None, title=f"Doc {i}", content="Some content.")
+
+        response = self.client_auth.post(
+            "/api/v1/knowledge/",
+            {"title": "One too many", "content": "Overflow content.", "source_type": "manual"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 402)
+        self.assertEqual(response.data["error"]["code"], "PLAN_LIMIT_REACHED")
+
 
 class KnowledgeRetrievalScopeTests(APITestCase):
     """Refinement 5: agent-specific knowledge must not leak to other agents."""

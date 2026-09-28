@@ -4,6 +4,7 @@ from rest_framework import permissions, viewsets
 from apps.agents.models import Agent, AgentTool
 from apps.agents.serializers import AgentSerializer, AgentToolSerializer
 from apps.agents.services import provision_default_tools
+from apps.billing.services import check_plan_limit
 from apps.core.permissions import IsBusinessMember, TenantScopedQuerySetMixin
 
 
@@ -13,6 +14,12 @@ class AgentViewSet(TenantScopedQuerySetMixin, viewsets.ModelViewSet):
     queryset = Agent.objects.all().prefetch_related("tools")
 
     def perform_create(self, serializer):
+        check_plan_limit(
+            self.request.business,
+            limit_field="max_agents",
+            current_count=Agent.objects.filter(business=self.request.business).count(),
+            resource_name="agents",
+        )
         agent = serializer.save(business=self.request.business)
         provision_default_tools(agent)
 

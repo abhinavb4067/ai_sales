@@ -101,3 +101,25 @@ def enforce_subscription_and_limits(business) -> Subscription:
         )
 
     return subscription
+
+
+def check_plan_limit(business, *, limit_field: str, current_count: int, resource_name: str) -> None:
+    """Generic per-resource cap check (agents, knowledge documents, ...) —
+    unlike enforce_subscription_and_limits (per-message, called on every
+    chat turn), this is called once at creation time for resources that
+    accumulate rather than repeat. Same "null = unlimited" convention as
+    every other Plan limit field.
+    """
+    try:
+        subscription = business.subscription
+    except Subscription.DoesNotExist:
+        raise APIError(code="NO_SUBSCRIPTION", message="This business has no active subscription.", status_code=402)
+
+    limit = getattr(subscription.plan, limit_field)
+    if limit is not None and current_count >= limit:
+        raise APIError(
+            code="PLAN_LIMIT_REACHED",
+            message=f"Your {subscription.plan.name} plan allows up to {limit} {resource_name}. "
+            "Upgrade your plan to add more.",
+            status_code=402,
+        )
