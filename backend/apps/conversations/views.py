@@ -10,6 +10,7 @@ from apps.apikeys.authentication import ApiKeyAuthentication
 from apps.apikeys.models import UsageEvent
 from apps.apikeys.permissions import HasApiKey
 from apps.apikeys.throttling import ApiKeyRateThrottle, WidgetRateThrottle
+from apps.billing.services import enforce_subscription_and_limits
 from apps.conversations.models import Conversation, Message
 from apps.conversations.serializers import (
     ConversationDetailSerializer,
@@ -90,6 +91,8 @@ def _run_chat(*, business, agent, conversation, message, api_key=None):
     orchestrator call, message persistence, and usage logging must stay
     identical everywhere so all channels behave the same way.
     """
+    enforce_subscription_and_limits(business)
+
     history = _conversation_history_for_prompt(conversation)
 
     Message.objects.create(

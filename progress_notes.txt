@@ -1,10 +1,10 @@
 AI Sales & Support Agent SaaS — Progress Notes
-Last updated: 2026-09-27 (end of day)
+Last updated: 2026-09-28 (end of day)
 
 ====================================================
-STATUS: Phase 1, Phase 2, and Phase 3 are CODE-COMPLETE.
-Verified via automated test suite only (72/72 tests passing,
-run against SQLite with config.settings.test).
+STATUS: Phase 1, Phase 2, Phase 3, and a first cut of Phase 4 (billing)
+are CODE-COMPLETE. Verified via automated test suite only (82/82 tests
+passing, run against SQLite with config.settings.test).
 NOT yet verified live against real MySQL / Redis / Celery / OpenAI —
 same blockers as before, deliberately skipped again today (see PENDING).
 ====================================================
@@ -136,6 +136,83 @@ PHASE 3 continued (done today, 2026-09-27) — widget embed
   modulo the plan-tier/billing enforcement noted above, which was never
   actually in scope for "Phase 3" per the original architecture doc —
   that's Phase 6 (billing) territory.
+
+PHASE 4 (first cut — billing & subscriptions, done today, 2026-09-28)
+--------------
+- New apps/billing app, mirroring the apps.ai provider-abstraction pattern:
+  - Plan model (code, price, per-plan limits: max_agents,
+    max_messages_per_month, max_knowledge_documents, max_team_members —
+    null = unlimited; nothing hard-coded, matches the "store limits in
+    plan configuration" rule). Seeded via data migration
+    (0002_seed_default_plans.py): starter (free, is_default=True),
+    growth ($49/mo), scale ($199/mo, unlimited).
+  - Subscription model (OneToOne on Business): status
+    (trial/active/past_due/suspended/cancelled/expired), current period
+    start/end, trial_ends_at, provider (manual/stripe/razorpay — only
+    manual implemented), external_customer_id/external_subscription_id
+    reserved for when a real gateway is wired up. Never deleted on
+    lapse — status changes, row and any API keys stay intact, per the
+    original spec ("do NOT delete the API key... authorization fails
+    according to subscription status").
+  - apps/billing/providers/: PaymentProvider ABC (start_checkout,
+    cancel_subscription, verify_webhook_signature) + ManualPaymentProvider
+    (only implementation right now — owner picks a plan, activates
+    immediately, no real charge) + registry.get_payment_provider() as the
+    single swap point for adding Stripe/Razorpay later without touching
+    call sites.
+  - apps/billing/signals.py: post_save on Business auto-starts a TRIAL
+    subscription on the default plan (mirrors apps.leads' default-stage
+    seeding signal exactly).
+  - apps/billing/services.py: enforce_subscription_and_limits(business) —
+    single chokepoint that checks subscription status is
+    trial/active (else 402 SUBSCRIPTION_INACTIVE) and current-period
+    usage against plan.max_messages_per_month (else 429
+    USAGE_LIMIT_EXCEEDED, counted from the existing apps.apikeys
+    UsageEvent table — no new usage-counting infra needed). Wired into
+    apps/conversations/views.py _run_chat() so playground, public API,
+    and widget chat are ALL gated identically — no channel can bypass
+    billing via a different code path. activate_subscription() is the
+    shared "turn a subscription on" function both the manual change-plan
+    endpoint and a future payment-webhook handler will call.
+  - Dashboard endpoints: GET /api/v1/billing/plans/ (public pricing),
+    GET /api/v1/billing/subscription/ (current sub + usage this period,
+    tenant-scoped), POST /api/v1/billing/subscription/change-plan/
+    (owner/admin only, HasRole-gated — instantly switches plan via the
+    manual provider).
+  - Frontend: BillingPage (frontend/src/pages/billing/BillingPage.jsx) —
+    current plan/status/usage bar, plan comparison cards with
+    switch-plan buttons. billingApi.js service layer. Added to nav +
+    routes. `npm run build` verified clean.
+  - 10 new backend tests (apps/billing/tests/test_subscriptions.py):
+    trial auto-starts on business creation, trial allows chat, suspended
+    subscription blocks chat with 402 (verified through the real
+    playground endpoint, not just the service function), usage-at-limit
+    blocks with 429, activate_subscription switches plan/status,
+    plan list is public, subscription detail includes live usage count,
+    change-plan requires owner/admin role, subscriptions are tenant-
+    isolated. 82/82 tests passing overall.
+- NOT done yet from Phase 4 / Refinement 11+24 scope (deferred,
+  documented as future work, not silently skipped):
+  - No real Stripe/Razorpay integration — ManualPaymentProvider only.
+    StripePaymentProvider/RazorpayPaymentProvider would implement the
+    same PaymentProvider ABC; registry.py is the only place a new one
+    needs registering.
+  - No webhook receiver endpoint yet (nothing to receive from until a
+    real gateway is wired up) — verify_webhook_signature() exists on the
+    interface so this slots in without changing the interface shape.
+  - No automatic period rollover (Celery beat job to renew
+    current_period_end monthly) — activate_subscription() sets a fresh
+    30-day period on manual plan switch, but a subscription left alone
+    forever doesn't auto-renew. Fine for now since there's no real
+    payment collection happening anyway.
+  - Refinement 12's "Redis for fast real-time usage checks" not done —
+    usage limit check hits MySQL/SQLite directly (a COUNT query per chat
+    request). Cheap at current scale; would need Redis counters + Celery
+    reconciliation before this becomes a bottleneck.
+  - max_agents / max_knowledge_documents / max_team_members are stored on
+    Plan but NOT YET enforced anywhere (only max_messages_per_month is
+    checked, in the chat pipeline). Agent creation, knowledge upload, and
+    team invites don't consult the plan yet.
 
 PENDING / BLOCKED — DO THIS FIRST TOMORROW
 -------------------------------------------

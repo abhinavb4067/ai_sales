@@ -13,6 +13,7 @@ import PlaygroundPage from "./pages/playground/PlaygroundPage";
 import LeadsPage from "./pages/leads/LeadsPage";
 import HandoffInboxPage from "./pages/conversations/HandoffInboxPage";
 import ApiKeysPage from "./pages/settings/ApiKeysPage";
+import BillingPage from "./pages/billing/BillingPage";
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
             <Route path="/leads" element={<LeadsPage />} />
             <Route path="/handoff" element={<HandoffInboxPage />} />
             <Route path="/api-keys" element={<ApiKeysPage />} />
+            <Route path="/billing" element={<BillingPage />} />
           </Route>
         </Route>
 
