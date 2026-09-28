@@ -188,6 +188,10 @@ input, textarea, select {
 .inline-form input { flex: 1; }
 .api-key-reveal { border: 1px solid var(--color-primary); }
 .api-key-value { display: block; margin: 10px 0; padding: 10px; background: #f1f2f6; border-radius: 6px; font-size: 13px; word-break: break-all; }
+
+.usage-bar { height: 8px; background: #eef0ff; border-radius: 999px; overflow: hidden; margin-top: 10px; }
+.usage-bar-fill { height: 100%; background: var(--color-primary); }
+.plan-current { border-color: var(--color-primary); }
 .embed-snippet { background: #1e1e2e; color: #e2e2f0; padding: 14px; border-radius: 8px; font-size: 12px; overflow-x: auto; white-space: pre; }
 
 @media (max-width: 768px) {

@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: "/leads", label: "Leads" },
   { to: "/handoff", label: "Human Handoff" },
   { to: "/api-keys", label: "API Keys" },
+  { to: "/billing", label: "Billing" },
 ];
 
 export default function DashboardLayout() {

@@ -49,6 +49,7 @@ LOCAL_APPS = [
     "apps.leads",
     "apps.ai",
     "apps.apikeys",
+    "apps.billing",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -200,6 +201,11 @@ CHANNEL_LAYERS = {
 # Field-level encryption (for future integration credentials / secrets)
 # ---------------------------------------------------------------------------
 FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default=None)
+
+# ---------------------------------------------------------------------------
+# Billing (see apps.billing.providers)
+# ---------------------------------------------------------------------------
+PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", default="manual")
 
 # ---------------------------------------------------------------------------
 # AI provider configuration (see apps.ai.providers)
