@@ -1,10 +1,11 @@
 AI Sales & Support Agent SaaS — Progress Notes
-Last updated: 2026-09-28 (end of day)
+Last updated: 2026-09-29 (end of day)
 
 ====================================================
-STATUS: Phase 1, Phase 2, Phase 3, and a first cut of Phase 4 (billing)
-are CODE-COMPLETE. Verified via automated test suite only (82/82 tests
-passing, run against SQLite with config.settings.test).
+STATUS: Phase 1, Phase 2, Phase 3, and Phase 4 (billing) are
+CODE-COMPLETE, including plan-limit enforcement (max_agents,
+max_knowledge_documents). Verified via automated test suite only
+(85/85 tests passing, run against SQLite with config.settings.test).
 NOT yet verified live against real MySQL / Redis / Celery / OpenAI —
 same blockers as before, deliberately skipped again today (see PENDING).
 ====================================================
@@ -259,8 +260,12 @@ PENDING / BLOCKED — DO THIS FIRST TOMORROW
       chat with the agent in the playground and get a real AI response.
 4. After that live verification (incl. a real widget.js embed test in an
    actual HTML page, and a real API-key curl call to /api/v1/public/chat/
-   — both are only test-suite-verified so far, not live), move to PHASE 4
-   per the original roadmap.
+   — both are only test-suite-verified so far, not live), pick the next
+   unfinished refinement: real Stripe/Razorpay + webhook receiver
+   (Refinement 24), Redis-backed real-time usage checks (Refinement 12),
+   real-time WebSockets/Channels (Refinement 22), or the first real
+   integration channel e.g. WhatsApp (Refinement 17) — see the "NOT done
+   yet" notes under PHASE 4 above and future_possibilities.txt.
 
 OTHER NOTES
 -----------
