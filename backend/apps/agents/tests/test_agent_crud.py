@@ -51,3 +51,20 @@ class AgentCrudTests(APITestCase):
     def test_unauthenticated_cannot_access_agents(self):
         response = self.client.get("/api/v1/agents/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_agent_creation_blocked_once_plan_limit_reached(self):
+        # Starter plan (the default trial plan) allows max_agents=1.
+        Agent.objects.create(business=self.business, name="Existing")
+        response = self.client_auth.post("/api/v1/agents/", {"name": "Second"}, format="json")
+        self.assertEqual(response.status_code, 402)
+        self.assertEqual(response.data["error"]["code"], "PLAN_LIMIT_REACHED")
+
+    def test_agent_creation_allowed_after_upgrading_plan(self):
+        from apps.billing.services import activate_subscription
+        from apps.billing.models import Plan
+
+        Agent.objects.create(business=self.business, name="Existing")
+        activate_subscription(business=self.business, plan=Plan.objects.get(code="growth"))
+
+        response = self.client_auth.post("/api/v1/agents/", {"name": "Second"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)

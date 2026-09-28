@@ -1,6 +1,7 @@
 from rest_framework import permissions, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
+from apps.billing.services import check_plan_limit
 from apps.core.permissions import IsBusinessMember, TenantScopedQuerySetMixin
 from apps.knowledge.models import KnowledgeDocument
 from apps.knowledge.serializers import KnowledgeDocumentSerializer, FILE_SOURCE_TYPES, TEXT_SOURCE_TYPES
@@ -14,6 +15,12 @@ class KnowledgeDocumentViewSet(TenantScopedQuerySetMixin, viewsets.ModelViewSet)
     queryset = KnowledgeDocument.objects.all().order_by("-created_at")
 
     def perform_create(self, serializer):
+        check_plan_limit(
+            self.request.business,
+            limit_field="max_knowledge_documents",
+            current_count=KnowledgeDocument.objects.filter(business=self.request.business).count(),
+            resource_name="knowledge documents",
+        )
         validated = serializer.validated_data
         source_type = validated.get("source_type", KnowledgeDocument.SourceType.MANUAL)
 
