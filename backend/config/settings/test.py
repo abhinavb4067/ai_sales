@@ -18,6 +18,11 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 # apps.ai.orchestrator.get_provider_for_agent directly.
 OPENAI_API_KEY = ""
 
+# A real (but test-only) Fernet key — needed to exercise
+# apps.core.fields.EncryptedTextField (integration credentials) without
+# requiring a real one to be configured for the test suite to run.
+FIELD_ENCRYPTION_KEY = "fPcFUZCMAZL5I4E-KvgC73eq4eBNfK_ycyPcavbNEA4="
+
 # No real Redis in the test environment — in-memory channel layer keeps
 # real-time broadcast calls (apps.conversations.realtime) working inside
 # a single test process without needing Redis up.

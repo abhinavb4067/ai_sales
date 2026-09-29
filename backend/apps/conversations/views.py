@@ -5,14 +5,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.agents.models import Agent
-from apps.ai.orchestrator import receive_message
 from apps.apikeys.authentication import ApiKeyAuthentication
-from apps.apikeys.models import UsageEvent
 from apps.apikeys.permissions import HasApiKey
 from apps.apikeys.throttling import ApiKeyRateThrottle, WidgetRateThrottle
-from apps.billing.services import enforce_subscription_and_limits
 from apps.conversations.models import Conversation, Message
-from apps.conversations.realtime import broadcast_conversation_updated, broadcast_message_created
+from apps.conversations.realtime import broadcast_conversation_updated
 from apps.conversations.serializers import (
     ConversationDetailSerializer,
     ConversationSerializer,
@@ -20,6 +17,7 @@ from apps.conversations.serializers import (
     PublicChatRequestSerializer,
     WidgetChatRequestSerializer,
 )
+from apps.conversations.services import run_chat_turn
 from apps.core.permissions import IsBusinessMember, TenantScopedQuerySetMixin
 
 
@@ -70,80 +68,16 @@ class ConversationResolveView(APIView):
         return Response(ConversationSerializer(conversation).data)
 
 
-def _conversation_history_for_prompt(conversation, exclude_message_id=None) -> list[dict]:
-    role_map = {
-        Message.SenderType.CUSTOMER: "user",
-        Message.SenderType.AI: "assistant",
-        Message.SenderType.AGENT_USER: "assistant",
-    }
-    history = []
-    qs = conversation.messages.exclude(sender_type=Message.SenderType.SYSTEM).order_by("created_at")
-    if exclude_message_id:
-        qs = qs.exclude(id=exclude_message_id)
-    for msg in qs:
-        role = role_map.get(msg.sender_type)
-        if role:
-            history.append({"role": role, "content": msg.content})
-    return history
-
-
 def _run_chat(*, business, agent, conversation, message, api_key=None):
-    """Shared chat pipeline for every channel (playground, public API,
-    website widget). Only the auth/permission front door and how the
-    Conversation is looked up/created differ between channels — the actual
-    orchestrator call, message persistence, and usage logging must stay
-    identical everywhere so all channels behave the same way.
+    """HTTP-response wrapper around apps.conversations.services.run_chat_turn
+    for the three HTTP-facing channels (playground, public API, widget).
+    WhatsApp/future integrations call run_chat_turn() directly since they
+    don't need an HTTP Response — they need turn.result.content to send
+    back out over the channel instead.
     """
-    enforce_subscription_and_limits(business)
-
-    history = _conversation_history_for_prompt(conversation)
-
-    customer_message = Message.objects.create(
-        business=business,
-        conversation=conversation,
-        sender_type=Message.SenderType.CUSTOMER,
-        content=message,
-    )
-    broadcast_message_created(customer_message)
-
-    result = receive_message(
-        agent=agent,
-        conversation=conversation,
-        history=history,
-        customer_message=message,
-    )
-
-    ai_message = Message.objects.create(
-        business=business,
-        conversation=conversation,
-        sender_type=Message.SenderType.AI,
-        content=result.content,
-        metadata={
-            "input_tokens": result.input_tokens,
-            "output_tokens": result.output_tokens,
-            "knowledge_chunks_used": result.knowledge_chunks_used,
-        },
-        tool_calls=[
-            {"tool_name": r.tool_name, "status": r.status, "result": r.result}
-            for r in result.tool_results
-        ]
-        or None,
-    )
-
-    conversation.last_activity_at = ai_message.created_at
-    conversation.save(update_fields=["last_activity_at"])
-
-    broadcast_message_created(ai_message)
-    broadcast_conversation_updated(conversation)
-
-    UsageEvent.objects.create(
-        business=business,
-        agent=agent,
-        api_key=api_key,
-        channel=conversation.channel,
-        input_tokens=result.input_tokens,
-        output_tokens=result.output_tokens,
-    )
+    turn = run_chat_turn(business=business, agent=agent, conversation=conversation, message=message, api_key=api_key)
+    ai_message = turn.ai_message
+    result = turn.result
 
     return Response(
         {
