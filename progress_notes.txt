@@ -1,16 +1,18 @@
 AI Sales & Support Agent SaaS — Progress Notes
-Last updated: 2026-09-30 (end of day)
+Last updated: 2026-10-01 (end of day)
 
 ====================================================
-STATUS: Phase 1, Phase 2, Phase 3, Phase 4 (billing), and Refinement 22
-(real-time WebSockets) are CODE-COMPLETE. Verified via automated test
-suite only (90/90 tests passing, run against SQLite with
+STATUS: Phase 1, Phase 2, Phase 3, Phase 4 (billing), Refinement 22
+(real-time WebSockets), and a first integration channel (WhatsApp,
+Refinement 17) are CODE-COMPLETE. Verified via automated test suite
+only (100/100 tests passing, run against SQLite with
 config.settings.test).
-NOT yet verified live against real MySQL / Redis / Celery / OpenAI —
-same blockers as before, deliberately skipped again today (see PENDING).
-Real-time in particular has NEVER been run against a real Redis channel
-layer — only the in-memory layer used in tests. See PHASE-5-ish section
-below.
+NOT yet verified live against real MySQL / Redis / Celery / OpenAI /
+WhatsApp — same blockers as before, deliberately skipped again today
+(see PENDING). Real-time has NEVER been run against a real Redis
+channel layer — only the in-memory layer used in tests. WhatsApp has
+NEVER been tested against real Meta infrastructure — only mocked
+requests.post calls in tests.
 ====================================================
 
 PHASE 1 (done)
@@ -301,6 +303,81 @@ REFINEMENT 22 — REAL-TIME (WebSockets, done today, 2026-09-30)
   Conversation list page (frontend/src/pages/conversations, if a plain
   list view is later added beyond the Handoff inbox) isn't wired to the
   socket yet, only HandoffInboxPage is.
+
+REFINEMENT 17 — WHATSAPP INTEGRATION (done today, 2026-10-01)
+--------------
+- apps/core/fields.py: EncryptedTextField — Fernet at-rest encryption for
+  secrets that must live in the DB (settings.FIELD_ENCRYPTION_KEY was
+  declared way back in Phase 1 for exactly this, but never actually used
+  until now). Built lazily off settings so it can be overridden in tests;
+  config/settings/test.py now sets a real (test-only) Fernet key.
+- Refactored apps/conversations/views._run_chat: the actual pipeline
+  (enforce billing → persist customer message → broadcast → call
+  orchestrator → persist AI message → broadcast → log UsageEvent) moved
+  into apps/conversations/services.run_chat_turn(), returning a
+  ChatTurn dataclass instead of an HTTP Response. _run_chat is now a
+  thin Response-building wrapper around it for the 3 HTTP-facing
+  channels (playground/API/widget). This is what let WhatsApp become a
+  4th caller of the SAME AI Agent Core pipeline without duplicating any
+  of it — exactly the "everything eventually flows through one
+  orchestrator" principle from the architecture doc. No behavior change
+  for existing channels (same 90 pre-existing tests still pass unchanged).
+- New apps/integrations app:
+  - Integration model (business+agent scoped, public_id UUID for the
+    webhook URL — same non-secret-identifier pattern as
+    Agent.public_widget_id — provider, external_account_id e.g. WhatsApp
+    phone_number_id, credentials as EncryptedTextField storing a
+    JSON blob of access_token/app_secret/verify_token).
+  - WebhookDelivery model — append-only audit log of every inbound
+    webhook call (signature_valid, raw payload, processed, error) so a
+    silently-failing integration is debuggable instead of invisible.
+  - apps/integrations/providers/: IntegrationProvider ABC
+    (validate_credentials, verify_webhook_signature,
+    parse_webhook_payload, send_message) + WhatsAppProvider (Meta
+    WhatsApp Cloud API — HMAC-SHA256 X-Hub-Signature-256 verification,
+    parses only text messages today, sends replies via
+    graph.facebook.com) + registry.py as the swap point for
+    Telegram/Slack/Messenger/etc. later — mirrors apps.ai.providers and
+    apps.billing.providers exactly.
+  - apps/integrations/services.py: handle_inbound_webhook() — verifies
+    signature, checks integration is active, threads messages to the
+    most-recent-non-resolved Conversation for that phone number (no
+    conversation_id exists on inbound channel messages the way it does
+    for widget/API), calls the shared run_chat_turn(), sends the AI's
+    reply back via provider.send_message(). ALWAYS acks the webhook with
+    200 even on internal failure (errors go to WebhookDelivery.error) —
+    Meta retry-storms on non-2xx responses.
+  - Dashboard endpoint: full CRUD on /api/v1/integrations/ (owner/admin,
+    tenant-scoped, credentials write-only — never returned in any
+    response, list or detail).
+  - Public webhook endpoints: GET
+  /api/v1/integrations/whatsapp/webhook/<public_id>/ (Meta's
+    verify-token handshake) and POST ...same URL... (message delivery,
+    signature-checked, no JWT/API key).
+  - Frontend: IntegrationsPage (frontend/src/pages/settings/IntegrationsPage.jsx)
+    — connect-WhatsApp form (agent picker + phone_number_id + the 3
+    credential fields), integration list with the webhook URL to paste
+    into Meta's app dashboard, remove button. integrationsApi.js service
+    layer. Added to nav + routes. `npm run build` verified clean.
+  - 10 new backend tests (apps/integrations/tests/test_whatsapp.py):
+    integration creation validates required credentials, credentials
+    never leak on list, cross-tenant isolation, verify-token handshake
+    accepts/rejects, a real inbound webhook call (through the actual
+    HTTP endpoint) creates a conversation + 2 messages and calls
+    requests.post with the right WhatsApp reply payload (mocked, not
+    live), bad signature is rejected but still 200-acked, a second
+    message from the same number reuses the same open conversation, a
+    disabled integration silently drops messages. 100/100 tests passing
+    overall, frontend build clean.
+- NOT done yet: only text messages are sent/received (media
+  images/audio/documents are parsed out and ignored, not crashed on).
+  Only WhatsApp is implemented — Telegram/Slack/Messenger/Instagram are
+  unregistered in providers/registry.py but the ABC is ready for them.
+  No live test against a real Meta WhatsApp Business account — needs a
+  real access token/app secret/phone_number_id from Meta, which nobody
+  has set up yet. No UI feedback loop for a broken/expired WhatsApp
+  token (WebhookDelivery.error exists but nothing surfaces it in the
+  dashboard yet).
 
 PENDING / BLOCKED — DO THIS FIRST TOMORROW
 -------------------------------------------
