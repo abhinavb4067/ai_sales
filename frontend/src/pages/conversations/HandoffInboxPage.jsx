@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
 import { listConversations, resolveConversation, takeoverConversation } from "../../services/conversationsApi";
+import { useConversationSocket } from "../../hooks/useConversationSocket";
 
 export default function HandoffInboxPage() {
   const [conversations, setConversations] = useState([]);
@@ -12,6 +13,16 @@ export default function HandoffInboxPage() {
   useEffect(() => {
     reload().finally(() => setLoading(false));
   }, []);
+
+  // On any conversation/message event (including reconnect — the socket
+  // fires no synthetic event on reconnect, so the initial `reload()` above
+  // plus this handler together are what re-sync state; nothing here
+  // assumes a missed event will ever be replayed).
+  useConversationSocket((event) => {
+    if (event.event === "conversation.updated" || event.event === "message.created") {
+      reload();
+    }
+  });
 
   const handleTakeover = async (id) => {
     await takeoverConversation(id);

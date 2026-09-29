@@ -17,3 +17,10 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 # retrieval), and tests that need to exercise chat generation mock
 # apps.ai.orchestrator.get_provider_for_agent directly.
 OPENAI_API_KEY = ""
+
+# No real Redis in the test environment — in-memory channel layer keeps
+# real-time broadcast calls (apps.conversations.realtime) working inside
+# a single test process without needing Redis up.
+CHANNEL_LAYERS = {
+    "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
+}

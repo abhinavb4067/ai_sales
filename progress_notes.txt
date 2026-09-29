@@ -1,13 +1,16 @@
 AI Sales & Support Agent SaaS — Progress Notes
-Last updated: 2026-09-29 (end of day)
+Last updated: 2026-09-30 (end of day)
 
 ====================================================
-STATUS: Phase 1, Phase 2, Phase 3, and Phase 4 (billing) are
-CODE-COMPLETE, including plan-limit enforcement (max_agents,
-max_knowledge_documents). Verified via automated test suite only
-(85/85 tests passing, run against SQLite with config.settings.test).
+STATUS: Phase 1, Phase 2, Phase 3, Phase 4 (billing), and Refinement 22
+(real-time WebSockets) are CODE-COMPLETE. Verified via automated test
+suite only (90/90 tests passing, run against SQLite with
+config.settings.test).
 NOT yet verified live against real MySQL / Redis / Celery / OpenAI —
 same blockers as before, deliberately skipped again today (see PENDING).
+Real-time in particular has NEVER been run against a real Redis channel
+layer — only the in-memory layer used in tests. See PHASE-5-ish section
+below.
 ====================================================
 
 PHASE 1 (done)
@@ -236,6 +239,68 @@ PHASE 4 continued (done today, 2026-09-29) — remaining plan-limit enforcement
   at max_knowledge_documents=10. 85/85 tests passing overall.
 - max_team_members remains unenforced — no invite endpoint exists to gate
   (see above).
+
+REFINEMENT 22 — REAL-TIME (WebSockets, done today, 2026-09-30)
+--------------
+- apps/conversations/ws_auth.py: JWTAuthMiddleware — Channels' stock
+  AuthMiddlewareStack reads Django sessions, but this dashboard is
+  JWT-authenticated, not session-authenticated, so a custom middleware
+  was needed. A WebSocket handshake from browser JS can't set a normal
+  Authorization header, so the access token travels as a `?token=` query
+  param (same token already held in memory by apiClient); validated via
+  SimpleJWT's AccessToken, resolves to a real Django user via
+  database_sync_to_async.
+- apps/conversations/consumers.py: ConversationConsumer — one Channels
+  group per business ("business_<id>"). On connect, resolves the
+  business from the authenticated user's active membership (mirrors
+  apps.core.permissions.resolve_business_for_request — an optional
+  ?business_id= query param may only narrow to one of the user's *own*
+  memberships, never grant access to someone else's). Rejects with close
+  code 4401 if unauthenticated or no membership. Push-only: the
+  dashboard still drives all state changes through REST, the socket
+  never accepts commands.
+- apps/conversations/realtime.py: broadcast_message_created() and
+  broadcast_conversation_updated() — thin wrappers around
+  channel_layer.group_send(), no-op safely if no channel layer is
+  configured. Wired into the shared apps.conversations.views._run_chat()
+  (broadcasts the customer message immediately, then the AI message +
+  updated conversation once the orchestrator responds — so this covers
+  playground, public API, AND widget chat, not just the dashboard) and
+  into ConversationTakeoverView / ConversationResolveView.
+- config/asgi.py wraps the websocket router in JWTAuthMiddleware.
+  apps/conversations/routing.py now actually registers
+  ws/conversations/ (was an empty placeholder before today).
+- config/settings/test.py: CHANNEL_LAYERS overridden to
+  channels.layers.InMemoryChannelLayer for tests — base.py's real
+  RedisChannelLayer would otherwise require Redis up just to run the
+  test suite.
+- Needed `daphne` (channels.testing.WebsocketCommunicator imports it
+  transitively) — added to requirements.txt via pip freeze.
+- Frontend: hooks/useConversationSocket.js — connects to
+  ws://.../ws/conversations/?token=..., auto-reconnects after a fixed
+  delay on close, and treats every inbound event as "go re-fetch via
+  REST" rather than trying to patch state from the socket payload
+  directly (the "after reconnect: REST fetch current state, then resume
+  WebSocket" rule from the architecture doc — nothing here assumes a
+  missed-while-disconnected event will ever be replayed). Wired into
+  HandoffInboxPage: any message.created/conversation.updated event
+  triggers a list re-fetch.
+- 5 new backend tests (apps/conversations/tests/test_realtime.py) using
+  channels.testing.WebsocketCommunicator: connect rejected with no
+  token, connect rejected with an invalid token, connect accepted with a
+  valid token + real membership, a real playground chat call (through
+  the actual HTTP endpoint, not a mocked service call) delivers
+  customer-message / ai-message / conversation-updated events in order
+  to a connected socket, and a second business's socket receives nothing
+  from the first business's chat (tenant isolation over WebSockets, not
+  just REST). 90/90 tests passing overall, frontend build clean.
+- NOT done yet: lead-update and generic notification events (only
+  message/conversation events broadcast so far — leads/notifications
+  apps don't call apps.conversations.realtime yet). No load-tested
+  verification against real Redis — only the in-memory test layer.
+  Conversation list page (frontend/src/pages/conversations, if a plain
+  list view is later added beyond the Handoff inbox) isn't wired to the
+  socket yet, only HandoffInboxPage is.
 
 PENDING / BLOCKED — DO THIS FIRST TOMORROW
 -------------------------------------------
