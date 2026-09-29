@@ -12,6 +12,7 @@ from apps.apikeys.permissions import HasApiKey
 from apps.apikeys.throttling import ApiKeyRateThrottle, WidgetRateThrottle
 from apps.billing.services import enforce_subscription_and_limits
 from apps.conversations.models import Conversation, Message
+from apps.conversations.realtime import broadcast_conversation_updated, broadcast_message_created
 from apps.conversations.serializers import (
     ConversationDetailSerializer,
     ConversationSerializer,
@@ -54,6 +55,7 @@ class ConversationTakeoverView(APIView):
         conversation = get_object_or_404(Conversation, pk=pk, business=request.business)
         conversation.assigned_to = request.user
         conversation.save(update_fields=["assigned_to", "updated_at"])
+        broadcast_conversation_updated(conversation)
         return Response(ConversationSerializer(conversation).data)
 
 
@@ -64,6 +66,7 @@ class ConversationResolveView(APIView):
         conversation = get_object_or_404(Conversation, pk=pk, business=request.business)
         conversation.status = Conversation.Status.RESOLVED
         conversation.save(update_fields=["status", "updated_at"])
+        broadcast_conversation_updated(conversation)
         return Response(ConversationSerializer(conversation).data)
 
 
@@ -95,12 +98,13 @@ def _run_chat(*, business, agent, conversation, message, api_key=None):
 
     history = _conversation_history_for_prompt(conversation)
 
-    Message.objects.create(
+    customer_message = Message.objects.create(
         business=business,
         conversation=conversation,
         sender_type=Message.SenderType.CUSTOMER,
         content=message,
     )
+    broadcast_message_created(customer_message)
 
     result = receive_message(
         agent=agent,
@@ -128,6 +132,9 @@ def _run_chat(*, business, agent, conversation, message, api_key=None):
 
     conversation.last_activity_at = ai_message.created_at
     conversation.save(update_fields=["last_activity_at"])
+
+    broadcast_message_created(ai_message)
+    broadcast_conversation_updated(conversation)
 
     UsageEvent.objects.create(
         business=business,
