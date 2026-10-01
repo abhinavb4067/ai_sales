@@ -1,11 +1,11 @@
 AI Sales & Support Agent SaaS — Progress Notes
-Last updated: 2026-10-02 (end of day)
+Last updated: 2026-10-03 (end of day)
 
 ====================================================
 STATUS: Phase 1, Phase 2, Phase 3, Phase 4 (billing incl. Razorpay),
 Refinement 22 (real-time WebSockets), and a first integration channel
 (WhatsApp, Refinement 17) are CODE-COMPLETE. Verified via automated
-test suite only (110/110 tests passing, run against SQLite with
+test suite only (111/111 tests passing, run against SQLite with
 config.settings.test).
 NOT yet verified live against real MySQL / Redis / Celery / OpenAI /
 WhatsApp / Razorpay — same blockers as before, deliberately skipped
@@ -450,15 +450,30 @@ REFINEMENT 24 — RAZORPAY BILLING (done today, 2026-10-02)
   the cancellation yet). 110/110 tests passing overall. Razorpay SDK
   (`razorpay==2.0.1`) added to requirements.txt.
 - NOT done yet: no live test against a real Razorpay account (everything
-  is mocked — razorpay.Client is patched in every test). No automatic
-  retry/backoff if a webhook delivery fails processing (Razorpay itself
-  retries on non-2xx, which this view's "always 200 unless signature is
-  bad" behavior mostly sidesteps, but a thrown exception inside
-  handle_razorpay_webhook_event would still 500 — not wrapped in a
-  try/except the way the WhatsApp webhook path is). Only the "growth"
+  is mocked — razorpay.Client is patched in every test). Only the "growth"
   plan was exercised in tests picking a plan with no razorpay_plan_id set
   — start_checkout will fail loudly against the real API once a real
   account exists until that field is actually filled in per plan.
+
+RAZORPAY WEBHOOK HARDENING (done today, 2026-10-03)
+--------------
+- apps/billing/views.py RazorpayWebhookView: handle_razorpay_webhook_event()
+  is now called inside its own try/except (logger.exception, mirrors the
+  exact pattern already used in apps/integrations/services.py for the
+  WhatsApp webhook) — a malformed/unexpected event body logs and still
+  acks with 200, instead of 500ing and triggering a Razorpay retry storm.
+  The signature-verification failure path (400) is unaffected — only
+  already-signature-verified payloads get this leniency.
+- 1 new test (test_malformed_payload_is_acked_not_500): posts
+  {"event": "subscription.activated", "payload": {"subscription": None}}
+  — this reproduced a real AttributeError in
+  handle_razorpay_webhook_event before the fix (confirmed by running the
+  test against the old code first), now returns 200. 111/111 tests
+  passing overall.
+- Remaining open items are unchanged from the REFINEMENT 24 section
+  above (no live Razorpay account test, per-plan razorpay_plan_id still
+  needs filling in once a real account exists) plus everything listed
+  under PENDING below.
 
 PENDING / BLOCKED — DO THIS FIRST TOMORROW
 -------------------------------------------
