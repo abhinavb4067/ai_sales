@@ -1,18 +1,19 @@
 AI Sales & Support Agent SaaS — Progress Notes
-Last updated: 2026-10-01 (end of day)
+Last updated: 2026-10-02 (end of day)
 
 ====================================================
-STATUS: Phase 1, Phase 2, Phase 3, Phase 4 (billing), Refinement 22
-(real-time WebSockets), and a first integration channel (WhatsApp,
-Refinement 17) are CODE-COMPLETE. Verified via automated test suite
-only (100/100 tests passing, run against SQLite with
+STATUS: Phase 1, Phase 2, Phase 3, Phase 4 (billing incl. Razorpay),
+Refinement 22 (real-time WebSockets), and a first integration channel
+(WhatsApp, Refinement 17) are CODE-COMPLETE. Verified via automated
+test suite only (110/110 tests passing, run against SQLite with
 config.settings.test).
 NOT yet verified live against real MySQL / Redis / Celery / OpenAI /
-WhatsApp — same blockers as before, deliberately skipped again today
-(see PENDING). Real-time has NEVER been run against a real Redis
-channel layer — only the in-memory layer used in tests. WhatsApp has
-NEVER been tested against real Meta infrastructure — only mocked
-requests.post calls in tests.
+WhatsApp / Razorpay — same blockers as before, deliberately skipped
+again today (see PENDING). Real-time has NEVER been run against a real
+Redis channel layer — only the in-memory layer used in tests. WhatsApp
+has NEVER been tested against real Meta infrastructure. Razorpay has
+NEVER been tested against a real Razorpay account — every test mocks
+razorpay.Client.
 ====================================================
 
 PHASE 1 (done)
@@ -197,10 +198,10 @@ PHASE 4 (first cut — billing & subscriptions, done today, 2026-09-28)
     plan list is public, subscription detail includes live usage count,
     change-plan requires owner/admin role, subscriptions are tenant-
     isolated. 82/82 tests passing overall.
-- NOT done yet from Phase 4 / Refinement 11+24 scope (deferred,
-  documented as future work, not silently skipped):
-  - No real Stripe/Razorpay integration — ManualPaymentProvider only.
-    StripePaymentProvider/RazorpayPaymentProvider would implement the
+- NOT done yet from Phase 4 / Refinement 11+24 scope as of this entry
+  (Razorpay added 2026-10-02 — see that section below for what changed):
+  - No real gateway integration yet — ManualPaymentProvider only.
+    A RazorpayPaymentProvider/StripePaymentProvider would implement the
     same PaymentProvider ABC; registry.py is the only place a new one
     needs registering.
   - No webhook receiver endpoint yet (nothing to receive from until a
@@ -379,6 +380,86 @@ REFINEMENT 17 — WHATSAPP INTEGRATION (done today, 2026-10-01)
   token (WebhookDelivery.error exists but nothing surfaces it in the
   dashboard yet).
 
+REFINEMENT 24 — RAZORPAY BILLING (done today, 2026-10-02)
+--------------
+- Stripe was ruled out (not registered there) — went with Razorpay
+  instead, same PaymentProvider ABC from Phase 4, no call sites changed.
+- apps/billing/providers/base.py: CheckoutSession gained a `client_data`
+  dict field — Razorpay has no Stripe-style hosted-checkout redirect URL;
+  instead a Subscription is created server-side and the frontend opens
+  Razorpay's own client-side Checkout widget with a subscription id + key
+  (client_data carries exactly that, checkout_url stays empty for this
+  provider). Also swapped verify_webhook_signature(bool) for
+  construct_webhook_event() -> dict, raising a new
+  WebhookVerificationError if the signature doesn't check out — lets the
+  provider verify-and-parse in one step (matches how real gateway SDKs
+  actually work) instead of verifying then re-parsing separately.
+  ManualPaymentProvider updated to match (always raises
+  WebhookVerificationError — it has no webhooks).
+- apps/billing/providers/razorpay_provider.py: RazorpayPaymentProvider —
+  start_checkout() creates a Razorpay Subscription (plan_id from the new
+  Plan.razorpay_plan_id field, notes carry business_id/plan_code for the
+  webhook to read back later) and returns the subscription id + key_id
+  for the frontend widget. Deliberately does NOT activate anything itself
+  — only a verified subscription.activated webhook does that, so a
+  customer closing the Razorpay popup without paying never silently
+  grants access. cancel_subscription() calls Razorpay's cancel API,
+  swallowing "already cancelled" errors. construct_webhook_event()
+  verifies X-Razorpay-Signature as HMAC-SHA256 of the raw body using
+  RAZORPAY_WEBHOOK_SECRET (hmac.compare_digest, not ==).
+- apps/billing/services.py: initiate_plan_change(business, plan) —
+  branches on settings.PAYMENT_PROVIDER; manual activates instantly
+  (unchanged behavior), any real gateway only starts a checkout.
+  cancel_subscription_for_business() calls the provider then sets
+  cancel_at_period_end (manual also flips status to CANCELLED
+  immediately since there's nothing to wait on; Razorpay stays ACTIVE
+  until its webhook confirms). handle_razorpay_webhook_event() dispatches
+  subscription.activated (-> activate_subscription, the SAME function the
+  manual flow uses), subscription.charged (renew the period, mark
+  ACTIVE), subscription.cancelled/completed (-> CANCELLED),
+  subscription.pending (-> PAST_DUE). Unknown subscription ids are
+  silently ignored, not errored — webhooks can arrive for
+  already-deleted/foreign state.
+- apps/billing/views.py: ChangePlanView now returns either an activated
+  Subscription (manual) or {type: "checkout", checkout_url, client_data}
+  (Razorpay) — same endpoint, response shape varies by provider.
+  New CancelSubscriptionView and RazorpayWebhookView (public, signature-
+  authenticated, 400 on bad signature, 200 otherwise — same "always ack
+  webhooks, log problems internally" pattern as the WhatsApp webhook).
+  New URLs: POST /api/v1/billing/subscription/cancel/, POST
+  /api/v1/billing/webhooks/razorpay/.
+- Plan model: added razorpay_plan_id (blank — set once a real Razorpay
+  account exists, e.g. via Django admin; migration
+  0003_plan_razorpay_plan_id.py).
+- Frontend: BillingPage now branches on changePlan()'s response — manual
+  just refreshes the subscription view; a checkout response dynamically
+  loads Razorpay's checkout.js and opens the payment widget using
+  client_data, with a reload-on-success handler. Added a "Cancel
+  subscription" button wired to the new endpoint. `npm run build`
+  verified clean.
+- 10 new backend tests (apps/billing/tests/test_razorpay.py, all under
+  override_settings(PAYMENT_PROVIDER="razorpay", ...)): checkout doesn't
+  activate the subscription early, the change-plan endpoint returns the
+  checkout payload, signature verification accepts/rejects correctly
+  (missing, wrong, valid), the webhook view rejects bad signatures with
+  400, a real subscription.activated webhook (through the actual HTTP
+  endpoint) activates the business's subscription end-to-end, a
+  subscription.pending webhook marks PAST_DUE, an unknown subscription id
+  is a 200 no-op, and cancel calls the mocked Razorpay client + sets
+  cancel_at_period_end without touching status (since nothing confirmed
+  the cancellation yet). 110/110 tests passing overall. Razorpay SDK
+  (`razorpay==2.0.1`) added to requirements.txt.
+- NOT done yet: no live test against a real Razorpay account (everything
+  is mocked — razorpay.Client is patched in every test). No automatic
+  retry/backoff if a webhook delivery fails processing (Razorpay itself
+  retries on non-2xx, which this view's "always 200 unless signature is
+  bad" behavior mostly sidesteps, but a thrown exception inside
+  handle_razorpay_webhook_event would still 500 — not wrapped in a
+  try/except the way the WhatsApp webhook path is). Only the "growth"
+  plan was exercised in tests picking a plan with no razorpay_plan_id set
+  — start_checkout will fail loudly against the real API once a real
+  account exists until that field is actually filled in per plan.
+
 PENDING / BLOCKED — DO THIS FIRST TOMORROW
 -------------------------------------------
 1. MySQL is NOT yet set up. Local MySQL80 service is running but the
@@ -400,14 +481,18 @@ PENDING / BLOCKED — DO THIS FIRST TOMORROW
    c. Do a real end-to-end smoke test: register -> create agent -> upload
       a real PDF/DOCX file -> confirm Celery processes it to "ready" ->
       chat with the agent in the playground and get a real AI response.
-4. After that live verification (incl. a real widget.js embed test in an
-   actual HTML page, and a real API-key curl call to /api/v1/public/chat/
-   — both are only test-suite-verified so far, not live), pick the next
-   unfinished refinement: real Stripe/Razorpay + webhook receiver
-   (Refinement 24), Redis-backed real-time usage checks (Refinement 12),
-   real-time WebSockets/Channels (Refinement 22), or the first real
-   integration channel e.g. WhatsApp (Refinement 17) — see the "NOT done
-   yet" notes under PHASE 4 above and future_possibilities.txt.
+4. After that live verification (incl. a real widget.js embed test, a
+   real API-key curl call to /api/v1/public/chat/, a real WhatsApp
+   message round-trip, and a real Razorpay checkout — ALL of these are
+   only test-suite-verified so far, not live), pick the next unfinished
+   item: Redis-backed real-time usage checks (Refinement 12), round out
+   real-time (lead/notification events, wire the conversation list page),
+   a second integration channel (Telegram — free/instant to set up, no
+   business verification needed, good next proof that the
+   IntegrationProvider abstraction generalizes), or wrap
+   handle_razorpay_webhook_event in try/except so a bad webhook payload
+   500s instead of crashing — see the "NOT done yet" notes under PHASE 4
+   / REFINEMENT 24 above and future_possibilities.txt.
 
 OTHER NOTES
 -----------

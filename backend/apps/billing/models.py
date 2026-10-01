@@ -16,6 +16,9 @@ class Plan(TimeStampedModel):
 
     monthly_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     currency = models.CharField(max_length=8, default="USD")
+    razorpay_plan_id = models.CharField(
+        max_length=64, blank=True, help_text="Razorpay Plan id this maps to — set once a real account exists."
+    )
 
     max_agents = models.PositiveIntegerField(null=True, blank=True, help_text="Null = unlimited.")
     max_messages_per_month = models.PositiveIntegerField(null=True, blank=True, help_text="Null = unlimited.")

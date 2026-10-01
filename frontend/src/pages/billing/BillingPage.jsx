@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
 import Card from "../../components/Card";
-import { changePlan, getSubscription, listPlans } from "../../services/billingApi";
+import { cancelSubscription, changePlan, getSubscription, listPlans } from "../../services/billingApi";
+
+function loadRazorpayScript() {
+  return new Promise((resolve, reject) => {
+    if (window.Razorpay) return resolve();
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Could not load Razorpay checkout."));
+    document.body.appendChild(script);
+  });
+}
 
 export default function BillingPage() {
   const [subscription, setSubscription] = useState(null);
@@ -20,11 +31,38 @@ export default function BillingPage() {
   const handleSwitch = async (planCode) => {
     setSwitching(planCode);
     try {
-      await changePlan(planCode);
+      const result = await changePlan(planCode);
+
+      // Manual provider activates instantly — nothing further to do.
+      // A real gateway (Razorpay) only starts a checkout here; the
+      // subscription itself updates later once its webhook fires.
+      if (result.type === "checkout") {
+        if (result.checkout_url) {
+          window.location.href = result.checkout_url;
+          return;
+        }
+        if (result.client_data?.razorpay_subscription_id) {
+          await loadRazorpayScript();
+          const checkout = new window.Razorpay({
+            key: result.client_data.key_id,
+            subscription_id: result.client_data.razorpay_subscription_id,
+            name: "Subscription",
+            handler: () => reload(),
+          });
+          checkout.open();
+        }
+        return;
+      }
+
       await reload();
     } finally {
       setSwitching(null);
     }
+  };
+
+  const handleCancel = async () => {
+    await cancelSubscription();
+    await reload();
   };
 
   if (loading) return <div className="page-loading">Loading…</div>;
@@ -62,6 +100,12 @@ export default function BillingPage() {
         {subscription.trial_ends_at && subscription.status === "trial" && (
           <p className="text-muted">Trial ends {new Date(subscription.trial_ends_at).toLocaleDateString()}</p>
         )}
+        {!subscription.cancel_at_period_end && subscription.status !== "cancelled" && (
+          <button className="btn btn-ghost" onClick={handleCancel}>
+            Cancel subscription
+          </button>
+        )}
+        {subscription.cancel_at_period_end && <p className="text-muted">Cancellation requested.</p>}
       </Card>
 
       <Card title="Available plans">

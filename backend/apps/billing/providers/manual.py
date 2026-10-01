@@ -1,18 +1,18 @@
-from apps.billing.providers.base import CheckoutSession, PaymentProvider
+from apps.billing.providers.base import CheckoutSession, PaymentProvider, WebhookVerificationError
 
 
 class ManualPaymentProvider(PaymentProvider):
     """No real payment gateway wired up yet — an owner/admin picks a plan
     and it activates immediately (apps.billing.services.activate_subscription
     does the actual work; this class exists so the calling code path is
-    identical to what a real StripeProvider will look like later).
+    identical to what a real gateway provider looks like).
     """
 
     def start_checkout(self, *, business, plan) -> CheckoutSession:
-        return CheckoutSession(checkout_url="", external_customer_id="", external_subscription_id="")
+        return CheckoutSession()
 
     def cancel_subscription(self, subscription) -> None:
         return None
 
-    def verify_webhook_signature(self, *, payload: bytes, headers: dict) -> bool:
-        return False
+    def construct_webhook_event(self, *, payload: bytes, headers: dict) -> dict:
+        raise WebhookVerificationError("Manual provider has no webhooks.")
