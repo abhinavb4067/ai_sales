@@ -1,3 +1,5 @@
+import logging
+
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions
 from rest_framework.response import Response
@@ -14,6 +16,8 @@ from apps.billing.services import (
     initiate_plan_change,
 )
 from apps.core.permissions import HasRole, IsBusinessMember
+
+logger = logging.getLogger(__name__)
 
 
 class PlanListView(APIView):
@@ -77,5 +81,12 @@ class RazorpayWebhookView(APIView):
         except WebhookVerificationError:
             return Response(status=400)
 
-        handle_razorpay_webhook_event(event)
+        try:
+            handle_razorpay_webhook_event(event)
+        except Exception:  # noqa: BLE001 — always ack a signature-verified
+            # webhook; Razorpay retry-storms on a non-2xx response, and a
+            # malformed/unexpected event body is an operator problem to
+            # investigate from logs, not something the sender should retry.
+            logger.exception("Failed to process Razorpay webhook event type=%s", event.get("event"))
+
         return Response(status=200)

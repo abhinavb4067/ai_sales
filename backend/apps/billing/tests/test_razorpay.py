@@ -151,6 +151,15 @@ class RazorpayWebhookViewTests(APITestCase):
         response = self._post_webhook(body)
         self.assertEqual(response.status_code, 200)
 
+    def test_malformed_payload_is_acked_not_500(self):
+        # A signature-verified but structurally unexpected body (e.g. a
+        # future Razorpay event shape, or a bug on their end) must never
+        # surface as a 500 — it's still a legitimate, verified webhook
+        # call that shouldn't be retried forever.
+        body = {"event": "subscription.activated", "payload": {"subscription": None}}
+        response = self._post_webhook(body)
+        self.assertEqual(response.status_code, 200)
+
 
 @override_settings(**RAZORPAY_SETTINGS)
 class RazorpayCancelTests(APITestCase):
