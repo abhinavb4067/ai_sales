@@ -207,6 +207,10 @@ FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default=None)
 # Billing (see apps.billing.providers)
 # ---------------------------------------------------------------------------
 PAYMENT_PROVIDER = env("PAYMENT_PROVIDER", default="manual")
+RAZORPAY_KEY_ID = env("RAZORPAY_KEY_ID", default="")
+RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET", default="")
+RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET", default="")
+FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:5173")
 
 # ---------------------------------------------------------------------------
 # AI provider configuration (see apps.ai.providers)

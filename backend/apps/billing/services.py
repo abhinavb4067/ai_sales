@@ -1,10 +1,12 @@
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from apps.apikeys.models import UsageEvent
 from apps.billing.models import Plan, Subscription
+from apps.billing.providers.registry import get_payment_provider
 from apps.core.exceptions import APIError
 
 ACTIVE_STATUSES = {Subscription.Status.TRIAL, Subscription.Status.ACTIVE}
@@ -55,6 +57,76 @@ def activate_subscription(
     subscription.external_subscription_id = external_subscription_id
     subscription.save()
     return subscription
+
+
+def initiate_plan_change(business, plan) -> dict:
+    """Entry point for the "change plan" dashboard action. The manual
+    provider activates instantly (there's no payment to collect). Any real
+    gateway (Razorpay today) only starts a checkout — the subscription
+    itself isn't touched until a verified webhook confirms payment, same
+    as activate_subscription() being the single activation chokepoint
+    regardless of who calls it.
+    """
+    if settings.PAYMENT_PROVIDER == "manual":
+        subscription = activate_subscription(business=business, plan=plan, provider=Subscription.Provider.MANUAL)
+        return {"type": "activated", "subscription": subscription}
+
+    session = get_payment_provider().start_checkout(business=business, plan=plan)
+    return {"type": "checkout", "checkout_url": session.checkout_url, "client_data": session.client_data}
+
+
+def cancel_subscription_for_business(business) -> Subscription:
+    subscription = business.subscription
+    get_payment_provider().cancel_subscription(subscription)
+    subscription.cancel_at_period_end = True
+    if subscription.provider == Subscription.Provider.MANUAL:
+        subscription.status = Subscription.Status.CANCELLED
+    subscription.save(update_fields=["cancel_at_period_end", "status", "updated_at"])
+    return subscription
+
+
+def handle_razorpay_webhook_event(event: dict) -> None:
+    """Dispatches a verified Razorpay webhook event. Only ever called
+    after RazorpayPaymentProvider.construct_webhook_event has confirmed
+    the signature — never trust unverified webhook content."""
+    from apps.tenants.models import Business
+
+    event_type = event.get("event", "")
+    payload = event.get("payload", {})
+    entity = payload.get("subscription", {}).get("entity")
+    if entity is None:
+        return
+    external_subscription_id = entity.get("id", "")
+
+    if event_type == "subscription.activated":
+        notes = entity.get("notes", {}) or {}
+        business = Business.objects.filter(id=notes.get("business_id")).first()
+        plan = Plan.objects.filter(code=notes.get("plan_code")).first()
+        if business and plan:
+            activate_subscription(
+                business=business,
+                plan=plan,
+                provider=Subscription.Provider.RAZORPAY,
+                external_customer_id=entity.get("customer_id", ""),
+                external_subscription_id=external_subscription_id,
+            )
+        return
+
+    subscription = Subscription.objects.filter(external_subscription_id=external_subscription_id).first()
+    if subscription is None:
+        return
+
+    if event_type == "subscription.charged":
+        subscription.status = Subscription.Status.ACTIVE
+        subscription.current_period_start = timezone.now()
+        subscription.current_period_end = timezone.now() + timedelta(days=30)
+        subscription.save(update_fields=["status", "current_period_start", "current_period_end", "updated_at"])
+    elif event_type in ("subscription.cancelled", "subscription.completed"):
+        subscription.status = Subscription.Status.CANCELLED
+        subscription.save(update_fields=["status", "updated_at"])
+    elif event_type == "subscription.pending":
+        subscription.status = Subscription.Status.PAST_DUE
+        subscription.save(update_fields=["status", "updated_at"])
 
 
 def _expire_if_trial_lapsed(subscription: Subscription) -> Subscription:
