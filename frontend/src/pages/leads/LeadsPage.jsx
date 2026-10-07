@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Card from "../../components/Card";
 import { changeLeadStage, listLeadStages, listLeads } from "../../services/leadsApi";
+import { useConversationSocket } from "../../hooks/useConversationSocket";
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState([]);
@@ -15,6 +16,16 @@ export default function LeadsPage() {
   useEffect(() => {
     reload().finally(() => setLoading(false));
   }, []);
+
+  // Same reconnect/resync contract as the Handoff inbox: a live event is
+  // only ever a "go re-fetch" signal, never trusted as the new state
+  // directly (nothing here assumes a missed-while-disconnected event
+  // will be replayed).
+  useConversationSocket((event) => {
+    if (event.event === "lead.created" || event.event === "lead.stage_changed") {
+      reload();
+    }
+  });
 
   const handleStageChange = async (leadId, stageId) => {
     await changeLeadStage(leadId, stageId);

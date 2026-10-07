@@ -1,12 +1,12 @@
 AI Sales & Support Agent SaaS — Progress Notes
-Last updated: 2026-10-04 (end of day)
+Last updated: 2026-10-05 (end of day)
 
 ====================================================
 STATUS: Phase 1, Phase 2, Phase 3, Phase 4 (billing incl. Razorpay),
-Refinement 22 (real-time WebSockets), a first integration channel
-(WhatsApp, Refinement 17), and team member invites are CODE-COMPLETE.
-Verified via automated test suite only (128/128 tests passing, run
-against SQLite with config.settings.test).
+Refinement 22 (real-time WebSockets, now incl. lead events), a first
+integration channel (WhatsApp, Refinement 17), and team member invites
+are CODE-COMPLETE. Verified via automated test suite only (129/129
+tests passing, run against SQLite with config.settings.test).
 NOT yet verified live against real MySQL / Redis / Celery / OpenAI /
 WhatsApp / Razorpay — same blockers as before, deliberately skipped
 again today (see PENDING). Real-time has NEVER been run against a real
@@ -297,13 +297,17 @@ REFINEMENT 22 — REAL-TIME (WebSockets, done today, 2026-09-30)
   to a connected socket, and a second business's socket receives nothing
   from the first business's chat (tenant isolation over WebSockets, not
   just REST). 90/90 tests passing overall, frontend build clean.
-- NOT done yet: lead-update and generic notification events (only
-  message/conversation events broadcast so far — leads/notifications
-  apps don't call apps.conversations.realtime yet). No load-tested
-  verification against real Redis — only the in-memory test layer.
-  Conversation list page (frontend/src/pages/conversations, if a plain
-  list view is later added beyond the Handoff inbox) isn't wired to the
-  socket yet, only HandoffInboxPage is.
+- NOT done yet AS OF 2026-09-30: lead-update and generic notification
+  events (only message/conversation events broadcast so far —
+  leads/notifications apps don't call apps.conversations.realtime yet).
+  No load-tested verification against real Redis — only the in-memory
+  test layer. Conversation list page (frontend/src/pages/conversations,
+  if a plain list view is later added beyond the Handoff inbox) isn't
+  wired to the socket yet, only HandoffInboxPage is. (Lead events closed
+  2026-10-05 — see that dated section below. No separate "all
+  conversations" list page exists in the frontend at all, only
+  HandoffInboxPage — wiring a page that doesn't exist isn't something to
+  build speculatively, so that part of this note stays open.)
 
 REFINEMENT 17 — WHATSAPP INTEGRATION (done today, 2026-10-01)
 --------------
@@ -532,6 +536,42 @@ TEAM MEMBER INVITES (done today, 2026-10-04)
   yet, consistent with that being its own unbuilt app per the original
   Django app list). No "leave business" self-service action for a
   member who wants to remove themselves. No ownership-transfer flow.
+
+REAL-TIME: LEAD EVENTS (done today, 2026-10-05)
+--------------
+- Refactor first: the business-group broadcast primitive moved out of
+  apps/conversations/realtime.py (where it was a private _broadcast()
+  helper) into apps/core/realtime.py as broadcast_business_event() —
+  apps.leads needed the same "push to business_<id> group" mechanism
+  without importing apps.conversations' internals.
+  apps/conversations/realtime.py's broadcast_message_created() /
+  broadcast_conversation_updated() now just call the shared helper;
+  behavior unchanged, confirmed by the existing real-time tests still
+  passing untouched.
+- apps/leads/realtime.py: broadcast_lead_created() and
+  broadcast_lead_stage_changed(). Wired into apps/leads/services.py at
+  the two actual mutation points — get_or_create_lead_for_conversation()
+  (only broadcasts on the create path, not when an existing lead for
+  that conversation is returned) and change_stage() — which are the
+  SAME functions both the dashboard API (LeadViewSet.change_stage) and
+  the AI tool executors (create_lead/update_lead in apps.ai.tools) call.
+  One broadcast call site covers every way a lead gets created or
+  changes stage, dashboard-driven or AI-driven, without duplicating
+  logic anywhere else.
+- Frontend: LeadsPage now uses the existing useConversationSocket hook
+  (same hook HandoffInboxPage already used) — on lead.created or
+  lead.stage_changed, re-fetches via REST rather than patching state
+  from the socket payload, same reconnect/resync contract as before.
+- 1 new backend test (apps/leads/tests/test_realtime.py): creates a
+  lead and changes its stage while a WebSocket is connected, confirms
+  both events arrive in order with the right lead id. 129/129 tests
+  passing overall, frontend build clean.
+- Still NOT done: generic notification events (nothing beyond
+  message/conversation/lead events exists to broadcast yet — there's no
+  apps.notifications app). No load-tested verification against real
+  Redis. No "all conversations" list page exists in the frontend to
+  wire up (see note above) — only HandoffInboxPage and now LeadsPage
+  consume the socket.
 
 PENDING / BLOCKED — DO THIS FIRST TOMORROW
 -------------------------------------------

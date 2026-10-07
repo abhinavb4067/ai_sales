@@ -1,22 +1,8 @@
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
-
-
-def _broadcast(business_id, event: str, data: dict) -> None:
-    channel_layer = get_channel_layer()
-    if channel_layer is None:
-        # No channel layer configured (e.g. some test environments) —
-        # real-time is a UI enhancement, never a requirement for the
-        # request/response pipeline to function.
-        return
-    async_to_sync(channel_layer.group_send)(
-        f"business_{business_id}",
-        {"type": "conversation.event", "payload": {"event": event, **data}},
-    )
+from apps.core.realtime import broadcast_business_event
 
 
 def broadcast_message_created(message) -> None:
-    _broadcast(
+    broadcast_business_event(
         message.business_id,
         "message.created",
         {
@@ -33,7 +19,7 @@ def broadcast_message_created(message) -> None:
 
 
 def broadcast_conversation_updated(conversation) -> None:
-    _broadcast(
+    broadcast_business_event(
         conversation.business_id,
         "conversation.updated",
         {

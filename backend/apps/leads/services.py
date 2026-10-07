@@ -5,6 +5,7 @@ itself, per the "sales does not mean uncontrolled trust in the model"
 principle.
 """
 from apps.leads.models import Lead, LeadActivity, LeadStage
+from apps.leads.realtime import broadcast_lead_created, broadcast_lead_stage_changed
 
 # Simple weighted heuristic — a starting point businesses can eventually
 # override with their own configured rules (not built in Phase 2). Kept
@@ -32,7 +33,9 @@ def get_or_create_lead_for_conversation(*, business, agent, conversation) -> Lea
     if existing:
         return existing
     default_stage = LeadStage.objects.filter(business=business).order_by("order").first()
-    return Lead.objects.create(business=business, agent=agent, conversation=conversation, stage=default_stage)
+    lead = Lead.objects.create(business=business, agent=agent, conversation=conversation, stage=default_stage)
+    broadcast_lead_created(lead)
+    return lead
 
 
 def apply_lead_fields(lead: Lead, fields: dict, *, actor_label: str = "ai") -> Lead:
@@ -77,4 +80,5 @@ def change_stage(lead: Lead, stage: LeadStage, *, actor_label: str = "system") -
         content=f"Stage changed from {old_name} to {stage.name}",
         actor_label=actor_label,
     )
+    broadcast_lead_stage_changed(lead)
     return lead
