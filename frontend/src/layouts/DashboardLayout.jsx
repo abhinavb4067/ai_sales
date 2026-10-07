@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: "/api-keys", label: "API Keys" },
   { to: "/billing", label: "Billing" },
   { to: "/integrations", label: "Integrations" },
+  { to: "/team", label: "Team" },
 ];
 
 export default function DashboardLayout() {

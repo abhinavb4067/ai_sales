@@ -1,12 +1,12 @@
 AI Sales & Support Agent SaaS — Progress Notes
-Last updated: 2026-10-03 (end of day)
+Last updated: 2026-10-04 (end of day)
 
 ====================================================
 STATUS: Phase 1, Phase 2, Phase 3, Phase 4 (billing incl. Razorpay),
-Refinement 22 (real-time WebSockets), and a first integration channel
-(WhatsApp, Refinement 17) are CODE-COMPLETE. Verified via automated
-test suite only (111/111 tests passing, run against SQLite with
-config.settings.test).
+Refinement 22 (real-time WebSockets), a first integration channel
+(WhatsApp, Refinement 17), and team member invites are CODE-COMPLETE.
+Verified via automated test suite only (128/128 tests passing, run
+against SQLite with config.settings.test).
 NOT yet verified live against real MySQL / Redis / Celery / OpenAI /
 WhatsApp / Razorpay — same blockers as before, deliberately skipped
 again today (see PENDING). Real-time has NEVER been run against a real
@@ -474,6 +474,64 @@ RAZORPAY WEBHOOK HARDENING (done today, 2026-10-03)
   above (no live Razorpay account test, per-plan razorpay_plan_id still
   needs filling in once a real account exists) plus everything listed
   under PENDING below.
+
+TEAM MEMBER INVITES (done today, 2026-10-04)
+--------------
+- This closes the max_team_members gap called out repeatedly above
+  (PHASE 4 / PHASE 4 continued sections) — there was no invite/add-member
+  endpoint at all before today, only a read-only membership list.
+- apps/tenants/services.py (new file — views were getting business-logic
+  heavy, matches the "views/serializers thin, services carry logic" rule
+  from the architecture doc): invite_member() only works for an email
+  that's ALREADY REGISTERED — deliberately no invite-by-email-for-a-
+  nonexistent-account flow (would need a nullable user FK + an email-sent
+  invite token, out of scope for now; returns 404 USER_NOT_REGISTERED
+  telling the inviter to ask the person to sign up first). Checks
+  check_plan_limit(..., limit_field="max_team_members", ...) — counts
+  ACTIVE+PENDING memberships as occupied seats — before creating a new
+  pending membership, using the exact same apps.billing.services
+  function agents/knowledge already use, no new limit-checking code
+  path. Re-inviting a previously REVOKED member reuses that row (new
+  role, status back to PENDING) rather than hitting the
+  unique_user_business_membership constraint. accept_invite() only lets
+  the invited user (matched by user id, not email) accept their own
+  PENDING membership. revoke_member() and change_member_role() both
+  refuse to touch an OWNER-role membership (no accidental/malicious
+  owner lockout or demotion via this endpoint — ownership transfer would
+  need its own deliberate flow, not built here).
+- New endpoints: POST /api/v1/business/members/invite/ (owner/admin
+  only), POST /api/v1/business/members/<id>/revoke/, POST
+  /api/v1/business/members/<id>/role/, GET /api/v1/team/my-invites/
+  (deliberately NOT business-scoped/IsBusinessMember-gated — a user with
+  only a PENDING membership has no ACTIVE membership yet, so
+  IsBusinessMember would 403 them; this endpoint is just
+  "memberships where user=me and status=pending", any authenticated user
+  can hit it for themselves), POST /api/v1/team/invites/<id>/accept/.
+- Frontend: TeamPage (frontend/src/pages/team/TeamPage.jsx) — invite
+  form, member table with inline role-change dropdown + remove button,
+  a "pending invites waiting for you" section with an accept button
+  (shown whenever the logged-in user has any, regardless of which
+  business they're currently viewing). teamApi.js service layer. Added
+  to nav + routes. `npm run build` verified clean.
+- 17 new tests (apps/tenants/tests/test_team_invites.py): invite creates
+  a pending membership, inviting an unregistered email 404s, inviting as
+  "owner" role is rejected, a non-admin member can't invite, invite is
+  blocked once the starter plan's max_team_members=2 is reached
+  (through the real endpoint, not just the service function), inviting
+  the same still-pending user twice is rejected, re-inviting a revoked
+  member reuses the row, the invitee sees it in my-invites, accepting
+  activates the membership AND makes /business/me/ accessible
+  immediately after (it was 403 before accepting), a stranger can't
+  accept someone else's invite, revoke/role-change work and are refused
+  for the owner, and revoke is scoped to the acting business (can't
+  revoke a membership belonging to a different business by id). 128/128
+  tests passing overall, frontend build clean.
+- NOT done yet: no email notification when invited (the invitee only
+  discovers the invite by visiting the dashboard and checking
+  my-invites — there's no apps.notifications app/email send wired up
+  yet, consistent with that being its own unbuilt app per the original
+  Django app list). No "leave business" self-service action for a
+  member who wants to remove themselves. No ownership-transfer flow.
 
 PENDING / BLOCKED — DO THIS FIRST TOMORROW
 -------------------------------------------

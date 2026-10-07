@@ -16,11 +16,23 @@ class BusinessSerializer(serializers.ModelSerializer):
 class BusinessMembershipSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source="user.email", read_only=True)
     user_name = serializers.CharField(source="user.name", read_only=True)
+    business_name = serializers.CharField(source="business.name", read_only=True)
 
     class Meta:
         model = BusinessMembership
         fields = [
-            "id", "user", "user_email", "user_name", "role", "status",
-            "joined_at", "created_at",
+            "id", "user", "user_email", "user_name", "business", "business_name",
+            "role", "status", "joined_at", "created_at",
         ]
-        read_only_fields = ["id", "user_email", "user_name", "joined_at", "created_at"]
+        read_only_fields = [
+            "id", "user_email", "user_name", "business", "business_name", "joined_at", "created_at",
+        ]
+
+
+class InviteMemberSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    role = serializers.ChoiceField(choices=BusinessMembership.Role.choices)
+
+
+class ChangeMemberRoleSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=BusinessMembership.Role.choices)
