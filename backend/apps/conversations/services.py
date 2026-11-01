@@ -90,3 +90,17 @@ def run_chat_turn(*, business, agent, conversation, message, api_key=None) -> Ch
     )
 
     return ChatTurn(conversation=conversation, ai_message=ai_message, result=result)
+
+
+def rate_message(message: Message, rating: str) -> Message:
+    """CSAT — only ever called for sender_type=AI messages (enforced by
+    the caller resolving the message, not here) and only once per
+    message from the customer's side (re-rating overwrites rather than
+    accumulating multiple ratings, since there's one customer per
+    conversation turn)."""
+    from django.utils import timezone
+
+    message.rating = rating
+    message.rated_at = timezone.now()
+    message.save(update_fields=["rating", "rated_at", "updated_at"])
+    return message

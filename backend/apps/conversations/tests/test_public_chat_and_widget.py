@@ -5,7 +5,7 @@ from rest_framework.test import APITestCase
 
 from apps.agents.models import Agent
 from apps.apikeys.models import ApiKey, UsageEvent
-from apps.conversations.models import Conversation
+from apps.conversations.models import Conversation, Message
 from apps.conversations.tests.test_playground import FakeProvider
 from apps.core.testing import create_business_with_owner
 
@@ -172,3 +172,72 @@ class WidgetChatTests(APITestCase):
             HTTP_ORIGIN="https://not-allowed.example",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+class WidgetMessageRatingTests(APITestCase):
+    def setUp(self):
+        self.user, self.business = create_business_with_owner()
+        self.agent = Agent.objects.create(business=self.business, name="Widget Agent", status=Agent.Status.ACTIVE)
+
+    @patch("apps.ai.orchestrator.get_provider_for_agent", return_value=FakeProvider())
+    def test_customer_can_rate_an_ai_reply(self, mock_provider):
+        chat_response = self.client.post(
+            f"/api/v1/widget/{self.agent.public_widget_id}/chat/", {"message": "Hi"}, format="json"
+        )
+        message_id = chat_response.data["message"]["id"]
+
+        response = self.client.post(
+            f"/api/v1/widget/{self.agent.public_widget_id}/messages/{message_id}/rate/",
+            {"rating": "up"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        message = Message.objects.get(id=message_id)
+        self.assertEqual(message.rating, "up")
+        self.assertIsNotNone(message.rated_at)
+
+    @patch("apps.ai.orchestrator.get_provider_for_agent", return_value=FakeProvider())
+    def test_rejects_invalid_rating_value(self, mock_provider):
+        chat_response = self.client.post(
+            f"/api/v1/widget/{self.agent.public_widget_id}/chat/", {"message": "Hi"}, format="json"
+        )
+        message_id = chat_response.data["message"]["id"]
+
+        response = self.client.post(
+            f"/api/v1/widget/{self.agent.public_widget_id}/messages/{message_id}/rate/",
+            {"rating": "sideways"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("apps.ai.orchestrator.get_provider_for_agent", return_value=FakeProvider())
+    def test_cannot_rate_a_customer_message(self, mock_provider):
+        chat_response = self.client.post(
+            f"/api/v1/widget/{self.agent.public_widget_id}/chat/", {"message": "Hi"}, format="json"
+        )
+        conversation_id = chat_response.data["conversation_id"]
+        customer_message = Message.objects.get(conversation_id=conversation_id, sender_type=Message.SenderType.CUSTOMER)
+
+        response = self.client.post(
+            f"/api/v1/widget/{self.agent.public_widget_id}/messages/{customer_message.id}/rate/",
+            {"rating": "up"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("apps.ai.orchestrator.get_provider_for_agent", return_value=FakeProvider())
+    def test_cannot_rate_another_agents_message(self, mock_provider):
+        other_user, other_business = create_business_with_owner(email="other@example.com")
+        other_agent = Agent.objects.create(business=other_business, name="Other Agent", status=Agent.Status.ACTIVE)
+
+        chat_response = self.client.post(
+            f"/api/v1/widget/{self.agent.public_widget_id}/chat/", {"message": "Hi"}, format="json"
+        )
+        message_id = chat_response.data["message"]["id"]
+
+        response = self.client.post(
+            f"/api/v1/widget/{other_agent.public_widget_id}/messages/{message_id}/rate/",
+            {"rating": "up"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

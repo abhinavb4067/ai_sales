@@ -32,10 +32,15 @@ class ToolExecutionResult:
 
 def _execute_human_handoff(*, business, agent, conversation, arguments: dict) -> dict:
     from apps.conversations.models import Conversation
+    from apps.webhooks.services import dispatch_event
 
     conversation.status = Conversation.Status.HUMAN_HANDOFF
     conversation.save(update_fields=["status", "updated_at"])
-    return {"reason": arguments.get("reason", "")}
+    reason = arguments.get("reason", "")
+    dispatch_event(business, "conversation.human_handoff", {
+        "conversation_id": conversation.id, "agent_id": agent.id, "reason": reason,
+    })
+    return {"reason": reason}
 
 
 def _execute_create_lead(*, business, agent, conversation, arguments: dict) -> dict:

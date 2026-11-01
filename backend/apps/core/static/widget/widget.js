@@ -54,7 +54,11 @@
     ".aisw-input-row input{flex:1;border:1px solid #e5e5ea;border-radius:8px;padding:8px 10px;font-size:13px;outline:none;}" +
     ".aisw-input-row button{background:" + primaryColor + ";color:#fff;border:none;border-radius:8px;padding:8px 12px;" +
     "font-size:13px;cursor:pointer;}" +
-    ".aisw-input-row button:disabled{opacity:.5;cursor:default;}";
+    ".aisw-input-row button:disabled{opacity:.5;cursor:default;}" +
+    ".aisw-rating{display:flex;gap:6px;margin-top:4px;}" +
+    ".aisw-rating button{background:none;border:none;cursor:pointer;font-size:13px;opacity:.5;padding:2px;}" +
+    ".aisw-rating button:hover{opacity:1;}" +
+    ".aisw-rating button.aisw-rated{opacity:1;}";
   document.head.appendChild(style);
 
   var bubble = document.createElement("button");
@@ -110,12 +114,50 @@
       });
   }
 
-  function appendMessage(sender, content) {
+  function appendMessage(sender, content, messageId) {
     var el = document.createElement("div");
     el.className = "aisw-msg " + (sender === "customer" ? "aisw-msg-customer" : "aisw-msg-ai");
     el.textContent = content;
     messages.appendChild(el);
+
+    if (sender === "ai" && messageId) {
+      messages.appendChild(buildRatingRow(messageId));
+    }
+
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  function buildRatingRow(messageId) {
+    var row = document.createElement("div");
+    row.className = "aisw-rating";
+
+    var up = document.createElement("button");
+    up.textContent = "👍";
+    up.setAttribute("aria-label", "This reply was helpful");
+
+    var down = document.createElement("button");
+    down.textContent = "👎";
+    down.setAttribute("aria-label", "This reply was not helpful");
+
+    function rate(value) {
+      up.disabled = true;
+      down.disabled = true;
+      (value === "up" ? up : down).classList.add("aisw-rated");
+      fetch(apiBase + "/widget/" + widgetId + "/messages/" + messageId + "/rate/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating: value }),
+      }).catch(function () {
+        /* rating is a nice-to-have — a failed request doesn't need surfacing to the customer */
+      });
+    }
+
+    up.addEventListener("click", function () { rate("up"); });
+    down.addEventListener("click", function () { rate("down"); });
+
+    row.appendChild(up);
+    row.appendChild(down);
+    return row;
   }
 
   function sendMessage() {
@@ -142,7 +184,7 @@
       })
       .then(function (data) {
         setConversationId(data.conversation_id);
-        appendMessage("ai", data.message.content);
+        appendMessage("ai", data.message.content, data.message.id);
       })
       .catch(function () {
         appendMessage("ai", "Sorry, something went wrong. Please try again.");

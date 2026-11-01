@@ -43,6 +43,16 @@ def _is_private_or_reserved(ip_str: str) -> bool:
     )
 
 
+def validate_url_is_safe(url: str) -> None:
+    """Public entry point for callers that need the SSRF checks (scheme/
+    port/DNS-resolves-to-public-address) without going through safe_get's
+    GET-with-redirects flow — e.g. apps.webhooks, which does its own POST
+    with a JSON body. Raises UnsafeURLError if the URL isn't safe to
+    reach; does not follow redirects (the caller owns that if it needs
+    to, re-validating each hop the same way safe_get does)."""
+    _validate_url(url)
+
+
 def _validate_url(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:

@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: "/handoff", label: "Human Handoff" },
   { to: "/analytics", label: "Analytics" },
   { to: "/api-keys", label: "API Keys" },
+  { to: "/webhooks", label: "Webhooks" },
   { to: "/billing", label: "Billing" },
   { to: "/integrations", label: "Integrations" },
   { to: "/team", label: "Team" },

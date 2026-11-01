@@ -2,7 +2,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.agents.models import Agent
-from apps.conversations.models import Conversation
+from apps.conversations.models import Conversation, Message
 from apps.core.testing import authenticated_client, create_business_with_owner
 from apps.leads.models import Lead, LeadStage
 
@@ -25,6 +25,35 @@ class AnalyticsOverviewTests(APITestCase):
         self.assertEqual(response.data["qualified_leads_last_window"], 1)
         self.assertIn("website", response.data["channel_breakdown"])
         self.assertIsNotNone(response.data["usage_against_plan"])
+
+    def test_overview_includes_csat_from_rated_messages(self):
+        conversation = Conversation.objects.create(business=self.business, agent=self.agent, channel=Conversation.Channel.WEBSITE)
+        Message.objects.create(
+            business=self.business, conversation=conversation, sender_type=Message.SenderType.AI,
+            content="Reply 1", rating=Message.Rating.UP,
+        )
+        Message.objects.create(
+            business=self.business, conversation=conversation, sender_type=Message.SenderType.AI,
+            content="Reply 2", rating=Message.Rating.UP,
+        )
+        Message.objects.create(
+            business=self.business, conversation=conversation, sender_type=Message.SenderType.AI,
+            content="Reply 3", rating=Message.Rating.DOWN,
+        )
+        Message.objects.create(
+            business=self.business, conversation=conversation, sender_type=Message.SenderType.AI,
+            content="Unrated reply",
+        )
+
+        response = self.client_auth.get("/api/v1/analytics/overview/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["csat"]["thumbs_up"], 2)
+        self.assertEqual(response.data["csat"]["thumbs_down"], 1)
+        self.assertAlmostEqual(response.data["csat"]["satisfaction_rate"], 2 / 3, places=3)
+
+    def test_csat_satisfaction_rate_is_none_with_no_ratings(self):
+        response = self.client_auth.get("/api/v1/analytics/overview/")
+        self.assertEqual(response.data["csat"]["satisfaction_rate"], None)
 
     def test_cannot_see_another_businesss_data(self):
         other_user, other_business = create_business_with_owner(email="other@example.com")

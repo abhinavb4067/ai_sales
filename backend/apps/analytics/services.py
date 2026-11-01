@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from apps.apikeys.models import UsageEvent
 from apps.appointments.models import Appointment
-from apps.conversations.models import Conversation
+from apps.conversations.models import Conversation, Message
 from apps.leads.models import Lead
 
 
@@ -33,6 +33,14 @@ def business_overview(business, *, days: int = 30) -> dict:
     usage = UsageEvent.objects.filter(business=business, created_at__gte=since).aggregate(
         input_tokens=Sum("input_tokens"), output_tokens=Sum("output_tokens")
     )
+
+    rated_messages = Message.objects.filter(
+        business=business, sender_type=Message.SenderType.AI, created_at__gte=since, rating__isnull=False
+    )
+    thumbs_up = rated_messages.filter(rating=Message.Rating.UP).count()
+    thumbs_down = rated_messages.filter(rating=Message.Rating.DOWN).count()
+    total_rated = thumbs_up + thumbs_down
+    satisfaction_rate = round(thumbs_up / total_rated, 3) if total_rated else None
 
     subscription = getattr(business, "subscription", None)
     usage_against_plan = None
@@ -62,4 +70,9 @@ def business_overview(business, *, days: int = 30) -> dict:
         "ai_input_tokens_last_window": usage["input_tokens"] or 0,
         "ai_output_tokens_last_window": usage["output_tokens"] or 0,
         "usage_against_plan": usage_against_plan,
+        "csat": {
+            "thumbs_up": thumbs_up,
+            "thumbs_down": thumbs_down,
+            "satisfaction_rate": satisfaction_rate,
+        },
     }

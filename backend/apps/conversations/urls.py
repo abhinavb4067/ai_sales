@@ -9,6 +9,7 @@ from apps.conversations.views import (
     PublicChatView,
     WidgetChatView,
     WidgetConfigView,
+    WidgetMessageRatingView,
 )
 
 urlpatterns = [
@@ -20,4 +21,9 @@ urlpatterns = [
     path("public/chat/", PublicChatView.as_view(), name="public-chat"),
     path("widget/<uuid:widget_id>/config/", WidgetConfigView.as_view(), name="widget-config"),
     path("widget/<uuid:widget_id>/chat/", WidgetChatView.as_view(), name="widget-chat"),
+    path(
+        "widget/<uuid:widget_id>/messages/<int:message_id>/rate/",
+        WidgetMessageRatingView.as_view(),
+        name="widget-message-rate",
+    ),
 ]

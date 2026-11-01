@@ -6,7 +6,7 @@ from apps.conversations.models import Conversation, Message
 class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
-        fields = ["id", "sender_type", "content_type", "content", "metadata", "tool_calls", "created_at"]
+        fields = ["id", "sender_type", "content_type", "content", "metadata", "tool_calls", "rating", "rated_at", "created_at"]
         read_only_fields = fields
 
 
@@ -42,3 +42,7 @@ class WidgetChatRequestSerializer(serializers.Serializer):
     message = serializers.CharField(max_length=4000, allow_blank=False)
     session_id = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
     stream = serializers.BooleanField(required=False, default=False)
+
+
+class MessageRatingRequestSerializer(serializers.Serializer):
+    rating = serializers.ChoiceField(choices=Message.Rating.choices)

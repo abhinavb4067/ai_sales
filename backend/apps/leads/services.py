@@ -6,6 +6,7 @@ principle.
 """
 from apps.leads.models import Lead, LeadActivity, LeadStage
 from apps.leads.realtime import broadcast_lead_created, broadcast_lead_stage_changed
+from apps.webhooks.services import dispatch_event
 
 # Simple weighted heuristic — a starting point businesses can eventually
 # override with their own configured rules (not built in Phase 2). Kept
@@ -35,6 +36,10 @@ def get_or_create_lead_for_conversation(*, business, agent, conversation) -> Lea
     default_stage = LeadStage.objects.filter(business=business).order_by("order").first()
     lead = Lead.objects.create(business=business, agent=agent, conversation=conversation, stage=default_stage)
     broadcast_lead_created(lead)
+    dispatch_event(business, "lead.created", {
+        "lead_id": lead.id, "agent_id": lead.agent_id, "conversation_id": conversation.id,
+        "name": lead.name, "email": lead.email, "phone": lead.phone,
+    })
     return lead
 
 
@@ -81,4 +86,7 @@ def change_stage(lead: Lead, stage: LeadStage, *, actor_label: str = "system") -
         actor_label=actor_label,
     )
     broadcast_lead_stage_changed(lead)
+    dispatch_event(lead.business, "lead.stage_changed", {
+        "lead_id": lead.id, "old_stage": old_name, "new_stage": stage.name,
+    })
     return lead

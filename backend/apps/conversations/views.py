@@ -16,11 +16,12 @@ from apps.conversations.realtime import broadcast_conversation_updated
 from apps.conversations.serializers import (
     ConversationDetailSerializer,
     ConversationSerializer,
+    MessageRatingRequestSerializer,
     PlaygroundChatRequestSerializer,
     PublicChatRequestSerializer,
     WidgetChatRequestSerializer,
 )
-from apps.conversations.services import run_chat_turn
+from apps.conversations.services import rate_message, run_chat_turn
 from apps.core.permissions import IsBusinessMember, TenantScopedQuerySetMixin
 
 
@@ -276,3 +277,28 @@ class WidgetChatView(APIView):
         if data.get("stream"):
             return _stream_chat(business=business, agent=agent, conversation=conversation, message=data["message"])
         return _run_chat(business=business, agent=agent, conversation=conversation, message=data["message"])
+
+
+class WidgetMessageRatingView(APIView):
+    """CSAT — a customer rates one of the AI's own replies as helpful or
+    not. Public/unauthenticated like the rest of the widget surface
+    (apps.conversations.views.WidgetChatView docstring explains why);
+    tenant isolation here comes from requiring the message to belong to
+    a conversation on *this* widget's agent, not from any auth check."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [WidgetRateThrottle]
+    throttle_scope = "widget"
+
+    def post(self, request, widget_id, message_id):
+        agent = get_object_or_404(Agent, public_widget_id=widget_id, status=Agent.Status.ACTIVE)
+        message = get_object_or_404(
+            Message, pk=message_id, conversation__agent=agent, sender_type=Message.SenderType.AI
+        )
+
+        serializer = MessageRatingRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        rate_message(message, serializer.validated_data["rating"])
+        return Response({"success": True})

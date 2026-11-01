@@ -21,4 +21,5 @@ urlpatterns = [
     path("api/v1/", include("apps.integrations.urls")),
     path("api/v1/", include("apps.superadmin.urls")),
     path("api/v1/", include("apps.analytics.urls")),
+    path("api/v1/", include("apps.webhooks.urls")),
 ]

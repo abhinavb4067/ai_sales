@@ -41,6 +41,14 @@ export default function AnalyticsPage() {
         <Card title="Upcoming Appointments">
           <div className="stat-number">{overview.appointments_upcoming}</div>
         </Card>
+        <Card title="Customer Satisfaction">
+          <div className="stat-number">
+            {overview.csat.satisfaction_rate != null ? `${Math.round(overview.csat.satisfaction_rate * 100)}%` : "—"}
+          </div>
+          <p className="text-muted">
+            {overview.csat.thumbs_up} 👍 / {overview.csat.thumbs_down} 👎
+          </p>
+        </Card>
       </div>
 
       <Card title="Channel Breakdown">

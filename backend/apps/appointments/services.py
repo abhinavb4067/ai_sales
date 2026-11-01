@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from apps.appointments.models import Appointment, FollowUp
+from apps.webhooks.services import dispatch_event
 
 
 def has_conflict(*, business, assigned_to, start_time, end_time, exclude_id=None) -> bool:
@@ -32,7 +33,7 @@ def book_appointment(
     if has_conflict(business=business, assigned_to=assigned_to, start_time=start_time, end_time=end_time):
         raise ValidationError("The selected time conflicts with an existing appointment.")
 
-    return Appointment.objects.create(
+    appointment = Appointment.objects.create(
         business=business,
         agent=agent,
         conversation=conversation,
@@ -42,6 +43,11 @@ def book_appointment(
         assigned_to=assigned_to,
         **fields,
     )
+    dispatch_event(business, "appointment.booked", {
+        "appointment_id": appointment.id, "agent_id": agent.id,
+        "start_time": start_time.isoformat(), "end_time": end_time.isoformat(),
+    })
+    return appointment
 
 
 def reschedule_appointment(appointment: Appointment, *, start_time, end_time) -> Appointment:
@@ -65,6 +71,7 @@ def reschedule_appointment(appointment: Appointment, *, start_time, end_time) ->
 def cancel_appointment(appointment: Appointment) -> Appointment:
     appointment.status = Appointment.Status.CANCELLED
     appointment.save(update_fields=["status", "updated_at"])
+    dispatch_event(appointment.business, "appointment.cancelled", {"appointment_id": appointment.id})
     return appointment
 
 

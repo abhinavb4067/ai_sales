@@ -54,12 +54,22 @@ class Message(TenantOwnedModel):
         AUDIO = "audio", "Audio"
         FILE = "file", "File"
 
+    class Rating(models.TextChoices):
+        UP = "up", "Helpful"
+        DOWN = "down", "Not helpful"
+
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="messages")
     sender_type = models.CharField(max_length=16, choices=SenderType.choices)
     content_type = models.CharField(max_length=16, choices=ContentType.choices, default=ContentType.TEXT)
     content = models.TextField()
     metadata = models.JSONField(default=dict, blank=True)
     tool_calls = models.JSONField(null=True, blank=True)
+    # CSAT — only ever set on sender_type=AI messages, by whoever is on
+    # the other end of that specific channel (the customer via the
+    # widget, or an API caller). Null = not rated, never a de facto
+    # "neutral"/"down" value.
+    rating = models.CharField(max_length=8, choices=Rating.choices, null=True, blank=True)
+    rated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "conversations_message"
