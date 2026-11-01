@@ -45,9 +45,18 @@ Celery — start a worker alongside the server (requires Redis running):
 celery -A config worker -l info --pool=solo   # --pool=solo needed on Windows
 ```
 
-Without a worker running, file/URL knowledge uploads stay in `pending`
-status forever — manual/FAQ text entries don't need it (they're ingested
-synchronously).
+Without a worker running, file/URL/API/database knowledge uploads stay
+in `pending` status forever — manual/FAQ text entries don't need it
+(they're ingested synchronously).
+
+Scheduled re-sync of URL/API knowledge sources and overdue-follow-up
+detection run via Celery Beat (see `config.settings.base
+CELERY_BEAT_SCHEDULE`) — start it alongside the worker if you want
+those to actually fire in dev:
+
+```bash
+celery -A config beat -l info
+```
 
 API docs (Swagger UI): http://localhost:8000/api/docs/
 Django admin: http://localhost:8000/admin/
@@ -77,6 +86,11 @@ The mandatory tenant-isolation suite lives in
   (native Postgres pgvector) is the default, with `KeywordRetriever` as a
   DB-agnostic fallback and an external Qdrant store as an opt-in
   alternative — see `apps/knowledge/retrieval.py::get_retriever()`.
+  Source types: manual/FAQ text, file upload (PDF/DOCX/TXT/CSV), website
+  URL (multi-page crawl respecting robots.txt — `apps/knowledge/crawler.py`),
+  external REST API, and a restricted read-only external database table
+  (`apps/knowledge/db_source.py` — single pre-validated table, no
+  AI-generated SQL, dedicated read-only credentials expected).
 - Every tenant-owned model inherits `apps.core.models.TenantOwnedModel` and
   every viewset uses `apps.core.permissions.TenantScopedQuerySetMixin` +
   `IsBusinessMember` — `request.business` is resolved server-side from the

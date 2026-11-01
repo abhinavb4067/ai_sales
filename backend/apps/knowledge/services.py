@@ -78,12 +78,15 @@ def ingest_manual_text(*, business, agent, title: str, content: str, source_type
 
 
 def create_pending_document(
-    *, business, agent, title: str, source_type: str, file=None, source_url: str = "", source_config: dict | None = None
+    *, business, agent, title: str, source_type: str, file=None, source_url: str = "",
+    source_config: dict | None = None, database_credentials: dict | None = None,
 ) -> KnowledgeDocument:
     """Creates the document row and returns immediately — the caller
     (view) enqueues the actual Celery processing task with the returned
     document's id. Keeps the HTTP request from blocking on
-    extraction/chunking/embedding for file/URL/API uploads."""
+    extraction/chunking/embedding for file/URL/API/database sources."""
+    import json
+
     return KnowledgeDocument.objects.create(
         business=business,
         agent=agent,
@@ -92,14 +95,25 @@ def create_pending_document(
         file=file,
         source_url=source_url,
         source_config=source_config or {},
+        external_db_credentials=json.dumps(database_credentials) if database_credentials else "",
         status=KnowledgeDocument.Status.PENDING,
     )
 
 
-def process_document(document_id) -> None:
+def process_document(document_id, *, is_resync: bool = False) -> None:
     """Runs the extract -> chunk -> embed pipeline for a single document.
     Called from apps.knowledge.tasks.process_document_task (Celery), kept
-    as a plain function so it's directly unit-testable without Celery."""
+    as a plain function so it's directly unit-testable without Celery.
+
+    is_resync=True (set by the scheduled re-sync task) skips re-chunking/
+    re-embedding when the freshly extracted content's checksum matches
+    the last run — avoids burning embedding-provider spend re-processing
+    a URL/API source that hasn't actually changed.
+    """
+    import hashlib
+
+    from django.utils import timezone
+
     from apps.knowledge.extractors import extract_text_for_document
 
     document = KnowledgeDocument.objects.get(id=document_id)
@@ -110,8 +124,19 @@ def process_document(document_id) -> None:
         content = extract_text_for_document(document)
         if not content.strip():
             raise ValueError("No text could be extracted from this document.")
+
+        checksum = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        unchanged = is_resync and checksum == document.content_checksum
         document.content = content
-        document.save(update_fields=["content", "updated_at"])
+        document.content_checksum = checksum
+        document.last_synced_at = timezone.now()
+
+        if unchanged:
+            document.status = KnowledgeDocument.Status.READY
+            document.save(update_fields=["content", "content_checksum", "last_synced_at", "status", "updated_at"])
+            return
+
+        document.save(update_fields=["content", "content_checksum", "last_synced_at", "updated_at"])
         _finish_ingestion(document, content)
     except Exception as exc:  # noqa: BLE001 — persist failure, don't hide it
         logger.exception("Document processing failed for document_id=%s", document_id)

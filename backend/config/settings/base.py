@@ -193,6 +193,17 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TASK_DEFAULT_QUEUE = "default"
 
+CELERY_BEAT_SCHEDULE = {
+    "resync-external-knowledge-sources": {
+        "task": "apps.knowledge.tasks.resync_external_sources",
+        "schedule": 60 * 60 * 24,  # daily
+    },
+    "flag-overdue-follow-ups": {
+        "task": "apps.appointments.tasks.flag_overdue_follow_ups",
+        "schedule": 60 * 30,  # every 30 minutes
+    },
+}
+
 CHANNELS_REDIS_URL = env("CHANNELS_REDIS_URL", default="redis://127.0.0.1:6379/2")
 CHANNEL_LAYERS = {
     "default": {

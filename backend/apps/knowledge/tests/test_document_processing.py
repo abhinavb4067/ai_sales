@@ -24,6 +24,42 @@ class DocumentProcessingTests(APITestCase):
         self.assertEqual(document.status, KnowledgeDocument.Status.READY)
         self.assertTrue(KnowledgeChunk.objects.filter(document=document).exists())
 
+    @patch("apps.knowledge.extractors.extract_text_for_document", return_value="Same content every time.")
+    def test_resync_skips_rechunking_when_content_unchanged(self, mock_extract):
+        document = KnowledgeDocument.objects.create(
+            business=self.business, title="Doc", source_type=KnowledgeDocument.SourceType.URL,
+            source_url="https://example.com", status=KnowledgeDocument.Status.READY,
+        )
+        process_document(document.id)
+        document.refresh_from_db()
+        first_checksum = document.content_checksum
+        chunk_count_before = KnowledgeChunk.objects.filter(document=document).count()
+
+        process_document(document.id, is_resync=True)
+        document.refresh_from_db()
+
+        self.assertEqual(document.status, KnowledgeDocument.Status.READY)
+        self.assertEqual(document.content_checksum, first_checksum)
+        self.assertEqual(KnowledgeChunk.objects.filter(document=document).count(), chunk_count_before)
+
+    @patch("apps.knowledge.extractors.extract_text_for_document")
+    def test_resync_rechunks_when_content_changed(self, mock_extract):
+        document = KnowledgeDocument.objects.create(
+            business=self.business, title="Doc", source_type=KnowledgeDocument.SourceType.URL,
+            source_url="https://example.com", status=KnowledgeDocument.Status.READY,
+        )
+        mock_extract.return_value = "Original content."
+        process_document(document.id)
+        document.refresh_from_db()
+        original_checksum = document.content_checksum
+
+        mock_extract.return_value = "Updated content, quite different from before."
+        process_document(document.id, is_resync=True)
+        document.refresh_from_db()
+
+        self.assertNotEqual(document.content_checksum, original_checksum)
+        self.assertEqual(document.content, "Updated content, quite different from before.")
+
     @patch("apps.knowledge.extractors.extract_text_for_document", side_effect=ValueError("boom"))
     def test_process_document_marks_failed_on_error(self, mock_extract):
         document = KnowledgeDocument.objects.create(

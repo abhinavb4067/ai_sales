@@ -80,6 +80,11 @@ class FollowUp(TenantOwnedModel):
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
+    # Set the first time the overdue-detection task (see
+    # apps.appointments.tasks.flag_overdue_follow_ups) surfaces this
+    # follow-up as overdue — prevents it from re-notifying staff on every
+    # scheduled run for the same still-pending follow-up.
+    overdue_notified_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "appointments_followup"

@@ -1,5 +1,8 @@
+import json
+
 from rest_framework import serializers
 
+from apps.knowledge.db_source import SUPPORTED_DIALECTS
 from apps.knowledge.models import KnowledgeDocument
 
 TEXT_SOURCE_TYPES = {KnowledgeDocument.SourceType.MANUAL, KnowledgeDocument.SourceType.FAQ}
@@ -17,14 +20,21 @@ ALLOWED_UPLOAD_CONTENT_TYPES = {
     "txt": {"text/plain"},
     "csv": {"text/csv", "application/vnd.ms-excel"},
 }
+REQUIRED_DB_CREDENTIAL_KEYS = {"dialect", "host", "database", "user", "password", "table"}
 
 
 class KnowledgeDocumentSerializer(serializers.ModelSerializer):
+    # Write-only — mirrors apps.integrations.serializers.IntegrationSerializer's
+    # pattern for secrets: accepted as a plain dict on input, stored
+    # encrypted via KnowledgeDocument.external_db_credentials, never
+    # returned in any response.
+    database_credentials = serializers.DictField(write_only=True, required=False)
+
     class Meta:
         model = KnowledgeDocument
         fields = [
             "id", "agent", "source_type", "title", "content", "file", "source_url", "source_config",
-            "status", "failure_reason", "created_at", "updated_at",
+            "database_credentials", "status", "failure_reason", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "status", "failure_reason", "created_at", "updated_at"]
 
@@ -59,14 +69,42 @@ class KnowledgeDocumentSerializer(serializers.ModelSerializer):
         elif source_type in (KnowledgeDocument.SourceType.URL, KnowledgeDocument.SourceType.API):
             if not attrs.get("source_url", "").strip():
                 raise serializers.ValidationError({"source_url": "This field may not be blank."})
+            config = attrs.get("source_config") or {}
+            if not isinstance(config, dict):
+                raise serializers.ValidationError({"source_config": "Must be an object."})
             if source_type == KnowledgeDocument.SourceType.API:
-                config = attrs.get("source_config") or {}
-                if not isinstance(config, dict):
-                    raise serializers.ValidationError({"source_config": "Must be an object."})
                 headers = config.get("headers", {})
                 if not isinstance(headers, dict) or not all(isinstance(v, str) for v in headers.values()):
                     raise serializers.ValidationError({"source_config": "headers must be a flat object of strings."})
+            if source_type == KnowledgeDocument.SourceType.URL and "max_pages" in config:
+                max_pages = config.get("max_pages")
+                if not isinstance(max_pages, int) or not 1 <= max_pages <= 50:
+                    raise serializers.ValidationError({"source_config": "max_pages must be an integer between 1 and 50."})
+        elif source_type == KnowledgeDocument.SourceType.DATABASE:
+            credentials = attrs.get("database_credentials")
+            if not credentials and not self.instance:
+                raise serializers.ValidationError({"database_credentials": "This field is required for database sources."})
+            if credentials:
+                missing = REQUIRED_DB_CREDENTIAL_KEYS - credentials.keys()
+                if missing:
+                    raise serializers.ValidationError({"database_credentials": f"Missing required keys: {missing}."})
+                if credentials.get("dialect") not in SUPPORTED_DIALECTS:
+                    raise serializers.ValidationError(
+                        {"database_credentials": f"dialect must be one of {SUPPORTED_DIALECTS}."}
+                    )
         else:
             raise serializers.ValidationError({"source_type": "Unsupported source type."})
 
         return attrs
+
+    def create(self, validated_data):
+        credentials = validated_data.pop("database_credentials", None)
+        if credentials is not None:
+            validated_data["external_db_credentials"] = json.dumps(credentials)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        credentials = validated_data.pop("database_credentials", None)
+        if credentials is not None:
+            validated_data["external_db_credentials"] = json.dumps(credentials)
+        return super().update(instance, validated_data)

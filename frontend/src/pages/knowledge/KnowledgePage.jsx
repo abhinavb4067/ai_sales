@@ -19,8 +19,11 @@ export default function KnowledgePage() {
   const [mode, setMode] = useState("text"); // text | file | url | api
   const [textForm, setTextForm] = useState(EMPTY_TEXT_FORM);
   const [fileForm, setFileForm] = useState({ title: "", sourceType: "pdf", file: null });
-  const [urlForm, setUrlForm] = useState({ title: "", source_url: "" });
+  const [urlForm, setUrlForm] = useState({ title: "", source_url: "", max_pages: 20 });
   const [apiForm, setApiForm] = useState({ title: "", source_url: "", accept_header: "application/json" });
+  const [dbForm, setDbForm] = useState({
+    title: "", dialect: "postgresql", host: "", port: "5432", database: "", user: "", password: "", table: "",
+  });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -70,8 +73,40 @@ export default function KnowledgePage() {
     setError("");
     setSubmitting(true);
     try {
-      await createKnowledgeEntry({ title: urlForm.title, source_type: "url", source_url: urlForm.source_url });
-      setUrlForm({ title: "", source_url: "" });
+      await createKnowledgeEntry({
+        title: urlForm.title,
+        source_type: "url",
+        source_url: urlForm.source_url,
+        source_config: { max_pages: Number(urlForm.max_pages) || 20 },
+      });
+      setUrlForm({ title: "", source_url: "", max_pages: 20 });
+      await reload();
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDbSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSubmitting(true);
+    try {
+      await createKnowledgeEntry({
+        title: dbForm.title,
+        source_type: "database",
+        database_credentials: {
+          dialect: dbForm.dialect,
+          host: dbForm.host,
+          port: Number(dbForm.port) || undefined,
+          database: dbForm.database,
+          user: dbForm.user,
+          password: dbForm.password,
+          table: dbForm.table,
+        },
+      });
+      setDbForm({ title: "", dialect: "postgresql", host: "", port: "5432", database: "", user: "", password: "", table: "" });
       await reload();
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -128,6 +163,9 @@ export default function KnowledgePage() {
             </button>
             <button className={`tab ${mode === "api" ? "active" : ""}`} onClick={() => setMode("api")} type="button">
               External API
+            </button>
+            <button className={`tab ${mode === "database" ? "active" : ""}`} onClick={() => setMode("database")} type="button">
+              External Database
             </button>
           </div>
         }
@@ -201,9 +239,21 @@ export default function KnowledgePage() {
                 onChange={(e) => setUrlForm({ ...urlForm, source_url: e.target.value })}
               />
             </FormField>
+            <FormField label="Max pages to crawl (1-50)">
+              <input
+                type="number"
+                min="1"
+                max="50"
+                value={urlForm.max_pages}
+                onChange={(e) => setUrlForm({ ...urlForm, max_pages: e.target.value })}
+              />
+            </FormField>
             <Button type="submit" disabled={submitting}>
-              {submitting ? "Fetching…" : "Fetch & Process"}
+              {submitting ? "Crawling…" : "Crawl & Process"}
             </Button>
+            <p className="text-muted">
+              Follows same-site links from this page, respecting robots.txt, up to the page limit above.
+            </p>
           </form>
         )}
 
@@ -233,6 +283,45 @@ export default function KnowledgePage() {
             <p className="text-muted">
               Only public endpoints are supported today — internal/private network addresses are always blocked.
               Endpoints requiring a secret API key aren't supported yet.
+            </p>
+          </form>
+        )}
+
+        {mode === "database" && (
+          <form onSubmit={handleDbSubmit} className="knowledge-form">
+            <FormField label="Title">
+              <input required value={dbForm.title} onChange={(e) => setDbForm({ ...dbForm, title: e.target.value })} />
+            </FormField>
+            <FormField label="Database type">
+              <select value={dbForm.dialect} onChange={(e) => setDbForm({ ...dbForm, dialect: e.target.value })}>
+                <option value="postgresql">PostgreSQL</option>
+                <option value="mysql">MySQL</option>
+              </select>
+            </FormField>
+            <FormField label="Host">
+              <input required value={dbForm.host} onChange={(e) => setDbForm({ ...dbForm, host: e.target.value })} />
+            </FormField>
+            <FormField label="Port">
+              <input value={dbForm.port} onChange={(e) => setDbForm({ ...dbForm, port: e.target.value })} />
+            </FormField>
+            <FormField label="Database name">
+              <input required value={dbForm.database} onChange={(e) => setDbForm({ ...dbForm, database: e.target.value })} />
+            </FormField>
+            <FormField label="Read-only username">
+              <input required value={dbForm.user} onChange={(e) => setDbForm({ ...dbForm, user: e.target.value })} />
+            </FormField>
+            <FormField label="Password">
+              <input type="password" required value={dbForm.password} onChange={(e) => setDbForm({ ...dbForm, password: e.target.value })} />
+            </FormField>
+            <FormField label="Table name (single table, no joins/queries)">
+              <input required value={dbForm.table} onChange={(e) => setDbForm({ ...dbForm, table: e.target.value })} />
+            </FormField>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Connecting…" : "Connect & Process"}
+            </Button>
+            <p className="text-muted">
+              Use a dedicated read-only database user — never your admin credentials. We only ever run a single
+              read-only query against the one table you specify, nothing else.
             </p>
           </form>
         )}

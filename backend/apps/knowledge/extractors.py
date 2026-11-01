@@ -36,19 +36,13 @@ def extract_csv(file_obj) -> str:
     return "\n".join(rows)
 
 
-def extract_url(url: str) -> str:
-    from bs4 import BeautifulSoup
+def extract_url(url: str, *, max_pages: int = 20) -> str:
+    """Crawls up to max_pages same-origin pages starting from `url`,
+    respecting robots.txt (apps.knowledge.crawler.crawl_website) — a
+    single-page fetch is just max_pages=1, not a separate code path."""
+    from apps.knowledge.crawler import crawl_website
 
-    from apps.knowledge.net_safety import safe_get
-
-    response = safe_get(url)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, "lxml")
-    for tag in soup(["script", "style", "nav", "footer", "header"]):
-        tag.decompose()
-    text = soup.get_text(separator="\n")
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return "\n".join(lines)
+    return crawl_website(url, max_pages=max_pages)
 
 
 def extract_api_source(url: str, *, headers: dict | None = None) -> str:
@@ -80,12 +74,24 @@ EXTRACTORS = {
 }
 
 
+def extract_database_source(document) -> str:
+    import json
+
+    from apps.knowledge.db_source import fetch_rows_as_text
+
+    config = json.loads(document.external_db_credentials or "{}")
+    return fetch_rows_as_text(config)
+
+
 def extract_text_for_document(document) -> str:
     source_type = document.source_type
     if source_type == "url":
-        return extract_url(document.source_url)
+        max_pages = (document.source_config or {}).get("max_pages", 20)
+        return extract_url(document.source_url, max_pages=max_pages)
     if source_type == "api":
         return extract_api_source(document.source_url, headers=(document.source_config or {}).get("headers"))
+    if source_type == "database":
+        return extract_database_source(document)
 
     extractor = EXTRACTORS.get(source_type)
     if extractor is None:
