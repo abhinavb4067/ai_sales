@@ -11,16 +11,18 @@ py -m venv venv                    # or: python -m venv venv
 pip install -r requirements.txt
 
 cp .env.example .env
-# edit .env: set MYSQL_PASSWORD to match what you used in scripts/setup_mysql.sql,
+# edit .env: set POSTGRES_PASSWORD to match what you used in scripts/setup_postgres.sql,
 # and OPENAI_API_KEY if you want the playground to produce real AI responses.
 ```
 
 ### Database
 
-Provision MySQL once (requires a MySQL admin/root login):
+Provision Postgres once (requires a Postgres superuser login; the
+`vector` extension needs pgvector installed — see docker-compose.yml's
+`pgvector/pgvector` image if you're not installing it manually):
 
 ```bash
-mysql -u root -p < scripts/setup_mysql.sql
+psql -U postgres -f scripts/setup_postgres.sql
 ```
 
 Then:
@@ -52,7 +54,7 @@ Django admin: http://localhost:8000/admin/
 
 ### Tests
 
-Tests run against an in-memory SQLite database — no MySQL/Redis/OpenAI
+Tests run against an in-memory SQLite database — no Postgres/Redis/OpenAI
 required:
 
 ```bash
@@ -71,9 +73,10 @@ The mandatory tenant-isolation suite lives in
   tool service that validates+executes AI-proposed actions, and the single
   `orchestrator.receive_message()` pipeline every channel (playground today;
   widget/API/WhatsApp later) calls.
-- `apps/knowledge` — `KnowledgeRetriever` abstraction; `MySQLKeywordRetriever`
-  is the Phase 1 implementation, swappable for a vector store later via
-  `apps/knowledge/retrieval.py::get_retriever()`.
+- `apps/knowledge` — `KnowledgeRetriever` abstraction; `PgVectorRetriever`
+  (native Postgres pgvector) is the default, with `KeywordRetriever` as a
+  DB-agnostic fallback and an external Qdrant store as an opt-in
+  alternative — see `apps/knowledge/retrieval.py::get_retriever()`.
 - Every tenant-owned model inherits `apps.core.models.TenantOwnedModel` and
   every viewset uses `apps.core.permissions.TenantScopedQuerySetMixin` +
   `IsBusinessMember` — `request.business` is resolved server-side from the

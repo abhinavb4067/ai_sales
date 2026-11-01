@@ -40,9 +40,22 @@ class Agent(TenantOwnedModel):
         ACTIVE = "active", "Active"
         DISABLED = "disabled", "Disabled"
 
+    class Provider(models.TextChoices):
+        OPENAI = "openai", "OpenAI"
+        GEMINI = "gemini", "Google Gemini"
+        LOCAL = "local", "Local / Self-hosted"
+
     # Public, non-secret identifier — safe to embed in widget snippets later
     # (Phase 3). Generated now so no migration is needed to add it then.
     public_widget_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+
+    # Website origins allowed to call the widget endpoints for this agent
+    # (scheme+host[:port], e.g. "https://example.com"). Empty list means no
+    # restriction yet — set once the business registers their domain. A
+    # public widget id alone is not a secret, so this is defence in depth
+    # against embedding on a domain the business never approved, not the
+    # primary auth boundary.
+    allowed_origins = models.JSONField(default=list, blank=True)
 
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
@@ -72,6 +85,7 @@ class Agent(TenantOwnedModel):
 
     # AI model configuration — provider-agnostic identifiers, resolved to a
     # concrete AIProvider + model by apps.ai.providers.registry.
+    provider = models.CharField(max_length=16, choices=Provider.choices, default=Provider.OPENAI)
     model = models.CharField(max_length=128, default="gpt-4o-mini")
     temperature = models.FloatField(default=0.4)
     max_tokens = models.PositiveIntegerField(default=800)
@@ -82,6 +96,17 @@ class Agent(TenantOwnedModel):
         indexes = [
             models.Index(fields=["business", "status"]),
         ]
+
+    def origin_allowed(self, origin: str | None) -> bool:
+        """No origins registered yet => allow any (matches today's
+        behavior, so existing widgets keep working until a business opts
+        into restricting their domain). Once allowed_origins is non-empty,
+        only an exact scheme+host[:port] match is accepted."""
+        if not self.allowed_origins:
+            return True
+        if not origin:
+            return False
+        return origin.rstrip("/") in self.allowed_origins
 
     def __str__(self):
         return f"{self.name} ({self.business_id})"
@@ -119,6 +144,7 @@ class AgentTool(TenantOwnedModel):
         CREATE_PAYMENT_LINK = "create_payment_link", "Create Payment Link"
         CREATE_QUOTE = "create_quote", "Create Quote"
         BOOK_APPOINTMENT = "book_appointment", "Book Appointment"
+        SCHEDULE_FOLLOW_UP = "schedule_follow_up", "Schedule Follow-up"
         HUMAN_HANDOFF = "human_handoff", "Human Handoff"
 
     class PermissionLevel(models.TextChoices):

@@ -6,6 +6,13 @@ from apps.integrations.models import Integration
 from apps.integrations.providers.registry import get_integration_provider
 
 
+class WhatsAppEmbeddedSignupSerializer(serializers.Serializer):
+    agent_id = serializers.IntegerField()
+    code = serializers.CharField()
+    waba_id = serializers.CharField()
+    phone_number_id = serializers.CharField()
+
+
 class IntegrationSerializer(serializers.ModelSerializer):
     credentials = serializers.DictField(write_only=True, required=False)
     webhook_url_path = serializers.SerializerMethodField()

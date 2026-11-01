@@ -1,0 +1,1037 @@
+ECTAMA – MASTER PROJECT PROMPT Complete Multi-Tenant AI Business
+Assistant SaaS Document purpose: Save this file in the root directory of
+the Ectama project and use it as the master specification for
+AI-assisted development.
+
+======================================================================
+ROLE AND WORKING RULES
+======================================================================
+
+Act as the principal software architect, senior Django engineer, AI
+engineer, security engineer, and technical lead for Ectama.
+
+Your task is to build Ectama as a production-oriented, multi-tenant AI
+Business Assistant SaaS. This is one unified platform through which many
+independent businesses can create their own AI agents, provide business
+knowledge, connect their websites, mobile applications, WhatsApp
+Business accounts, and telephone systems, and automate customer support,
+sales enquiries, lead qualification, appointments, follow-ups, and other
+permitted business operations.
+
+Before changing anything, inspect the existing repository, project
+structure, dependencies, code conventions, environment configuration,
+database schema, migrations, tests, and deployment setup. Reuse working
+code where appropriate. Do not blindly overwrite, delete, rename, or
+regenerate existing files. Do not assume that a feature exists without
+inspecting it.
+
+Work incrementally and preserve a coherent, runnable application. Do not
+attempt to generate the entire system in one uncontrolled
+code-generation pass. Implement the specification in milestones, run
+checks and tests after each milestone, fix failures, and report exactly
+what is complete, what is incomplete, what changed, and what requires
+external credentials or manual setup. Do not claim a feature is complete
+merely because files were generated.
+
+When requirements are ambiguous, choose secure, maintainable defaults
+and document the decision. Ask a question only when an essential
+business or technical decision cannot safely be inferred. Never invent
+API credentials, provider capabilities, legal approvals, or successful
+external integrations.
+
+====================================================================== 1.
+PRODUCT VISION
+======================================================================
+
+Product name: Ectama Product category: AI Business Assistant and AI
+Sales & Customer Communication SaaS.
+
+The product must allow a business to:
+
+1.  Register and create its own business workspace.
+2.  Invite employees and assign roles.
+3.  Create one or multiple AI agents.
+4.  Configure each agent’s name, personality, language, tone,
+    instructions, response style, business rules, tools, and model.
+5.  Upload documents and add website sources.
+6.  Connect approved external APIs and read-only external databases.
+7.  Build a private business knowledge base.
+8.  Select an AI provider and model.
+9.  Choose Ectama-managed AI billing or bring their own provider API key
+    (BYOK).
+10. Generate secure API credentials and integrate an agent into their
+    website or mobile app.
+11. Install an embeddable website chat widget without needing to build a
+    chat interface.
+12. Connect their own WhatsApp Business account through the official
+    Meta WhatsApp Business Platform.
+13. Connect supported business telephone numbers through a suitable
+    telephony/SIP provider.
+14. Use the same AI agent across multiple channels.
+15. View and manage conversations from one dashboard.
+16. Capture leads, qualify enquiries, schedule appointments, arrange
+    authorized callbacks, and hand over conversations to human
+    employees.
+17. View usage, costs, analytics, subscription information, and
+    integration status.
+
+The product must be suitable for many independent tenants and must never
+expose one business’s data, credentials, conversations, knowledge,
+customers, or usage to another business.
+
+CORE PRODUCT PRINCIPLE: One shared Ectama AI orchestration engine serves
+all tenants. Each tenant has strictly isolated data, agents, knowledge
+bases, credentials, integrations, conversations, usage, and
+configuration. One AI agent can be connected to multiple channels, and
+all channels use the same central AI engine and business knowledge.
+
+Do not create a separate AI application or separate codebase for every
+customer. Use a shared, scalable application with strict tenant
+isolation.
+
+======================================================================
+2. TECHNOLOGY STACK
+======================================================================
+
+Preferred stack:
+
+Backend: - Python - Django - Django REST Framework - Django Channels /
+ASGI for real-time features - Celery for background processing - Redis
+for queues, cache, rate limiting, and coordination
+
+Database: - PostgreSQL - pgvector for vector similarity search - Proper
+relational models, constraints, indexes, and migrations
+
+Frontend: - React - Vite - TypeScript where practical - Responsive
+business dashboard - Separate Super Admin experience or a clearly
+separated admin area
+
+AI: - Shared AI orchestration layer - OpenAI provider adapter - Google
+Gemini provider adapter - Extensible provider interface for future
+providers - Embedding provider abstraction - Retrieval-Augmented
+Generation (RAG) - Tool/function calling with strict authorization
+
+Integrations: - Official Meta WhatsApp Business Platform / Cloud API -
+Meta Embedded Signup where applicable - SIP-compatible telephony
+provider - OpenAI Realtime API or another supported real-time voice
+provider - Configured REST API integrations - Restricted read-only
+external database integrations
+
+Infrastructure: - Docker and Docker Compose for reproducible
+environments - Ubuntu server - Nginx reverse proxy - HTTPS -
+S3-compatible object storage such as Cloudflare R2 or Amazon S3 -
+Environment-based configuration - Structured logging and error
+monitoring - Automated backups and restore procedures
+
+Payments: - Start with a suitable payment gateway such as Razorpay,
+subject to account eligibility and integration requirements. - Keep
+payment gateway code behind an adapter so other providers can be added.
+
+Use compatible, maintained package versions. Check current official
+provider documentation before implementing external APIs. Do not assume
+old API endpoints, SDK methods, model names, WhatsApp flows, or
+telephony capabilities are still valid.
+
+======================================================================
+3. ARCHITECTURAL STYLE
+======================================================================
+
+Start with a modular monolith, not microservices.
+
+Keep one Django backend project, but organize business domains into
+separate Django apps with clear boundaries. Keep provider-specific code
+behind adapters and keep business logic out of views.
+
+Potential project structure:
+
+ectama_backend/ config/ settings/ base.py development.py production.py
+urls.py asgi.py celery.py apps/ accounts/ tenants/ memberships/
+subscriptions/ agents/ ai_providers/ ai_engine/ prompts/ tools/
+knowledge/ integrations/ documents/ channels/ conversations/ messages/
+voice/ crm/ leads/ appointments/ api_keys/ webhooks/ usage/ billing/
+analytics/ audit_logs/ common/ models.py permissions.py
+tenant_context.py encryption.py exceptions.py services/ ai/ retrieval/
+embeddings/ routing/ integrations/ workers/ tests/ manage.py
+
+Adapt this structure to the existing repository instead of forcing a
+destructive reorganization. Keep models, serializers, views,
+permissions, services, selectors/querysets, tasks, and tests organized
+within their responsible apps.
+
+Use: - UUID primary keys for public/domain entities. - created_at and
+updated_at timestamps. - Explicit tenant ownership on tenant-owned
+records. - Database constraints for uniqueness and valid
+relationships. - Indexes for common tenant-scoped queries. -
+Transactions for multi-step state changes. - Idempotency for webhook
+events, message processing, payments, and usage recording. - Versioned
+APIs under /api/v1/.
+
+======================================================================
+4. MULTI-TENANT ACCOUNT AND ACCESS MODEL
+======================================================================
+
+A user may belong to multiple businesses. A tenant represents one
+business workspace.
+
+Implement at minimum:
+
+Tenant: - id - name - unique slug - contact email - website - status:
+active, suspended, deleted - timezone - locale - settings - timestamps
+
+TenantMembership: - tenant - user - role - active status - timestamps -
+unique constraint on tenant + user
+
+Roles: - Owner - Admin - Employee/Agent - Developer - Optional custom
+roles later
+
+Implement: - Custom Django user model from the beginning if the project
+does not already have a stable user model. - Registration and login. -
+JWT authentication and refresh. - Password reset and email verification
+where configured. - Tenant creation and onboarding. - Invitation and
+membership management. - Role-based permissions. - Tenant-aware
+querysets and service functions. - Super Admin access separated from
+tenant access. - Account suspension and deletion workflows.
+
+Never trust a tenant ID supplied by the client. Derive tenant access
+from the authenticated user, membership, API credential, verified
+channel connection, or verified webhook identity. Validate ownership on
+every relationship, not only the top-level object.
+
+Use PostgreSQL Row-Level Security as additional defence in depth where
+practical. Establish tenant context safely inside transactions and
+account for connection pooling. Application-level authorization remains
+mandatory.
+
+======================================================================
+5. AI AGENT MANAGEMENT
+======================================================================
+
+A tenant can create multiple AI agents. An agent can connect to multiple
+channels and can use one or more assigned knowledge bases.
+
+AIAgent should support: - tenant - name - description - status: draft,
+active, paused, archived - system instructions - language - personality
+and tone - response length/style - structured configuration -
+created_by - configuration version - timestamps
+
+Agent configuration should support: - Default AI model configuration -
+Fallback model configuration where supported - Assigned knowledge
+bases - Allowed tools - Human handover rules - Channel behavior - Usage
+limits - Safety settings - Business hours and timezone - Language
+preferences - Escalation rules
+
+Keep security-sensitive and frequently queried values in proper model
+fields. Use validated JSON configuration for flexible settings. Version
+agent instructions, tool configuration, and important settings so
+responses can be audited and reproduced.
+
+An agent must not be able to use a knowledge base, channel, credential,
+integration, or tool belonging to another tenant.
+
+======================================================================
+6. MULTI-PROVIDER AI ARCHITECTURE
+======================================================================
+
+Build one shared AI orchestration engine with pluggable provider
+adapters.
+
+Initial providers: - OpenAI - Google Gemini
+
+Prepare for other providers without rewriting business logic.
+
+Implement models or equivalent domain entities:
+
+AIProvider: - provider name - display name - enabled status -
+capabilities - metadata
+
+AIModel: - provider - provider model identifier - display name -
+capabilities such as text, vision, tools, audio, streaming - enabled
+status - pricing metadata - context/output limits where known - unique
+provider + model identifier
+
+TenantProviderCredential: - tenant - provider - credential type -
+encrypted credentials - active status - validation status/time - safe
+metadata - never expose secret values through API responses
+
+AgentModelConfiguration: - tenant - agent - provider - model -
+credential reference if BYOK - billing mode: Ectama-managed or BYOK -
+generation parameters - default/fallback status
+
+Support: 1. Ectama-managed provider credentials, with Ectama metering
+and billing. 2. BYOK credentials, where the business supplies its own
+provider key.
+
+Encrypt secrets using a secure key-management design. Prefer a KMS or
+envelope encryption. Do not hardcode encryption keys in source code or
+store plaintext provider keys. Mask credentials in logs and API
+responses. Validate that the credential, provider, model, agent, and
+tenant relationships are compatible.
+
+Create a common provider interface for: - text generation - streaming
+generation where supported - tool/function calling - vision where
+supported - audio/voice capabilities where supported - credential
+validation - usage extraction
+
+Keep provider-specific SDK calls inside adapters. Do not call provider
+SDKs directly from Django views, serializers, or channel webhooks.
+
+Do not assume every provider supports every feature. Check capabilities
+and return clear errors when an agent selects an unsupported feature.
+
+======================================================================
+7. KNOWLEDGE MANAGEMENT AND RAG
+======================================================================
+
+A tenant can create multiple knowledge bases. An agent can be assigned
+one or more knowledge bases. A knowledge base can contain multiple
+sources.
+
+Support sources: - PDF - DOCX - TXT - CSV - Other explicitly supported
+document formats - Public website URLs - Manually entered business
+information - Configured REST APIs - Restricted read-only external
+database integrations
+
+Implement domain entities equivalent to:
+
+KnowledgeBase: - tenant - name - description - active status
+
+AgentKnowledgeBase: - tenant - agent - knowledge base - unique
+assignment constraint
+
+KnowledgeSource: - tenant - knowledge base - source type - source name -
+source configuration - status - last sync - last error -
+version/fingerprint
+
+Document: - source - original filename - object-storage location - MIME
+type - size - processing status - checksum - metadata
+
+DocumentChunk: - tenant - source/document - chunk index - text content -
+embedding - embedding model identifier - metadata - source location/page
+reference
+
+KnowledgeSyncRun: - source - status - start/end timestamps - processed
+count - failure details
+
+RAG pipeline: 1. Validate and securely store upload. 2. Extract text in
+a background worker. 3. Normalize and clean content. 4. Split text into
+configurable chunks with overlap. 5. Generate embeddings through a
+provider abstraction. 6. Store vectors in pgvector. 7. Record source
+metadata and version. 8. Retrieve relevant chunks for a customer query.
+9. Apply tenant and knowledge-base filters inside the database retrieval
+query. 10. Build a grounded AI context. 11. Return an answer with an
+appropriate fallback when evidence is insufficient.
+
+Use pgvector VectorField, not JSON, for production similarity search.
+Ensure vector dimensions match the selected embedding model. If multiple
+embedding dimensions are needed, use separate compatible tables/indexes
+or another explicit dimension-aware architecture. Keep embedding model
+and version metadata. Do not mix incompatible vector dimensions.
+
+Use a consistent initial embedding model across tenants if that
+simplifies indexing, independently of their selected chat model. Make
+re-embedding possible when the embedding model changes.
+
+Website ingestion: - Crawl only permitted public pages. - Respect
+robots.txt and reasonable crawl limits. - Deduplicate URLs and
+content. - Track changed content. - Support scheduled sync. - Prevent
+SSRF, DNS rebinding, access to localhost, private IP ranges, cloud
+metadata endpoints, and internal services. - Restrict redirects, ports,
+response sizes, content types, and timeouts. - Do not crawl
+authenticated/private pages unless a specifically authorized integration
+is designed for them.
+
+External API integrations: - Only call configured and authorized
+endpoints. - Store credentials securely. - Use allowlisted hosts and
+safe network egress. - Apply timeouts, response-size limits, rate
+limits, and schema validation. - Do not let the AI invent arbitrary URLs
+or send credentials to arbitrary hosts.
+
+External database integrations: - Use dedicated read-only credentials. -
+Restrict network access. - Use statement timeouts and row limits. -
+Allow only approved tables/views and parameterized queries. - Never
+execute arbitrary AI-generated SQL. - Never connect customer databases
+to Ectama’s primary database using privileged credentials.
+
+Treat retrieved documents and external content as untrusted data, never
+as system instructions. Defend against prompt injection and malicious
+content.
+
+======================================================================
+8. EXTERNAL INTEGRATIONS AND BUSINESS TOOLS
+======================================================================
+
+Businesses may connect external software systems.
+
+Implement an integration framework for: - REST APIs - Webhooks -
+Read-only database sources - Future CRM, e-commerce, booking, inventory,
+and order systems
+
+Create a trusted tool registry. The AI may request a tool call, but the
+backend must validate the tool name, tenant, agent permissions, input
+schema, user authorization, and business rules before execution.
+
+Initial tools: - search_products - check_product_availability -
+create_lead - update_lead - book_appointment - check_order_status -
+request_human_handover - schedule_callback -
+send_authorized_business_notification
+
+Implement: - AgentTool configuration - ToolExecution history - strict
+input schemas - tenant-aware permissions - idempotency for
+state-changing actions - audit logging - execution timeout and limits -
+human approval for sensitive actions where needed
+
+Never allow arbitrary Python execution, arbitrary shell commands,
+arbitrary SQL, or unrestricted network requests from AI tool calls.
+
+The AI must not independently issue refunds, change prices, delete
+records, make commitments, or perform other sensitive actions without
+the required business authorization and controls.
+
+======================================================================
+9. CHANNEL ARCHITECTURE – ONE AGENT, MULTIPLE CHANNELS
+======================================================================
+
+One AI agent must be able to serve multiple website, mobile, WhatsApp,
+and voice connections.
+
+Implement channel adapters that normalize incoming events into one
+internal message/event format. All adapters must call the same central
+AI orchestration service. The response must be sent back through the
+originating channel adapter.
+
+Potential models:
+
+ChannelConnection: - tenant - channel type: website, WhatsApp, voice,
+mobile - connection name - external identifier - encrypted credentials -
+configuration - status - timestamps
+
+AgentChannelBinding: - tenant - agent - channel connection - active
+status - unique agent + connection relationship
+
+Support multiple connections of the same type per tenant. Validate that
+the agent and connection belong to the same tenant.
+
+Normalize events to include: - verified tenant - verified agent -
+channel - external customer identifier - conversation identifier -
+message type - message content or media reference - provider
+event/message identifier - timestamp - safe metadata
+
+Do not accept unverified tenant IDs from incoming customer messages.
+Resolve tenant and connection through authenticated API credentials,
+verified channel connection identifiers, or verified provider webhook
+identity.
+
+======================================================================
+10. WEBSITE API AND JAVASCRIPT WIDGET
+======================================================================
+
+Provide: - Versioned public chat API - Private developer API - Public
+widget key - Private server API key - API key creation, hashing,
+revocation, expiry, permissions - Website domain/origin registration and
+verification - Per-key and per-tenant rate limits - Conversation
+creation and history - Streaming responses - WebSocket support where
+appropriate - Human handover - Message/media support as implemented
+
+Never expose private API keys in browser JavaScript.
+
+The website widget should be a separately buildable JavaScript package
+served from a CDN. It should support: - Floating chat button - Chat
+window - Responsive mobile UI - Branding and theme settings - Message
+history - Loading and typing states - Error and retry states - Session
+management - Safe rendering of untrusted content - Accessibility
+basics - Configurable welcome message
+
+Example customer installation:
+
+Treat this as a public, restricted widget identifier, not a secret
+developer credential. Validate allowed origins and apply abuse controls.
+Do not rely on CORS alone for authentication or authorization.
+
+======================================================================
+11. WHATSAPP BUSINESS INTEGRATION
+======================================================================
+
+Use only the official Meta WhatsApp Business Platform / Cloud API.
+
+Support each tenant connecting its own WhatsApp Business Account and
+phone number through the official authorization flow, such as Embedded
+Signup where available and approved.
+
+Implement: - Meta app configuration documentation - Embedded Signup
+initiation and callback handling - OAuth/state validation - Business
+Account and phone-number identification - Secure token storage and
+rotation/renewal where supported - Webhook subscription - Webhook
+signature verification - Centralized webhook endpoint -
+Connection-to-tenant resolution - Incoming text and supported media
+events - Duplicate-event/idempotency protection - Asynchronous message
+processing - Outgoing replies - Delivery/read/failure status updates -
+Disconnection and token revocation handling - Template message support
+where required - Usage and provider charge recording
+
+Use a centralized webhook, not one webhook endpoint per customer.
+Resolve the correct ChannelConnection using verified Meta identifiers
+and stored mappings. Then resolve the tenant and agent and call the
+central AI engine.
+
+Follow current Meta documentation for permissions, app review,
+onboarding, messaging windows, templates, customer opt-in, pricing, rate
+limits, and policy requirements. Do not promise that a customer can
+connect an arbitrary personal WhatsApp account. Do not request a
+personal WhatsApp password or QR-session workaround.
+
+Respect WhatsApp’s customer service window and approved template
+requirements. Do not send unsolicited messages. Record relevant consent
+and opt-out status.
+
+======================================================================
+12. VOICE AND TELEPHONY
+======================================================================
+
+Build voice as a separate real-time channel adapter using a supported
+voice AI provider and SIP-compatible telephony provider.
+
+Potential AI: - OpenAI Realtime API - Other providers behind a common
+voice interface where supported
+
+Potential telephony: - A suitable SIP or licensed telecom provider,
+selected after verifying country coverage, number provisioning,
+inbound/outbound support, and applicable regulations.
+
+Support two distinct workflows:
+
+INBOUND: 1. Customer calls the business number. 2. Telephony provider
+routes the call to Ectama. 3. Ectama verifies the called
+number/connection and resolves tenant and agent. 4. Establish
+low-latency real-time voice session. 5. AI listens and responds using
+the same business knowledge and permitted tools. 6. AI may capture lead
+information, answer questions, schedule an appointment, or request human
+transfer. 7. Save call metadata, events, summary, and permitted
+transcript/recording.
+
+OUTBOUND: 1. Business selects or schedules an eligible customer
+callback. 2. Verify the business is authorized to call and the customer
+has the required consent. 3. Apply country-specific calling
+restrictions, time windows, suppression lists, frequency limits, and
+provider rules. 4. Initiate the call through an approved provider. 5. AI
+conducts the conversation. 6. Save call events, result, summary, and
+permitted transcript/recording. 7. Update lead status and follow-up
+actions.
+
+Implement: - CallSession - CallEvent - ProviderCallReference - call
+state machine - inbound/outbound direction - tenant and agent binding -
+provider adapter - real-time session handling - call transfer - call
+summaries - transcript/recording metadata - recording consent -
+retention controls - usage metering - error and retry handling
+
+Do not process real-time audio through slow ordinary HTTP
+request/response tasks. Use the provider’s supported real-time
+streaming/SIP architecture. Keep voice transport independent from the
+normal background message queue.
+
+India-specific requirements: - Do not assume an international virtual
+number provider permits unrestricted calls to Indian numbers. - Verify
+current Indian telecom provider eligibility and licensing. - Investigate
+applicable TRAI, DLT, commercial communication, consent, caller
+identity, numbering, recording, and data protection requirements with
+qualified compliance guidance. - Do not enable commercial outbound
+telecalling until the applicable provider and legal requirements have
+been verified. - Never initiate calls without the required business
+authorization and customer consent.
+
+======================================================================
+13. CONVERSATIONS, MESSAGES, HUMAN HANDOVER
+======================================================================
+
+Implement tenant-scoped Conversation and Message models.
+
+Conversation should include: - tenant - agent - channel connection -
+external customer identifier - status: open, waiting, human, closed -
+assigned employee if applicable - last message timestamp - safe context
+metadata - timestamps
+
+Message should include: - tenant - conversation - sender type: customer,
+AI, human, system - direction - content or media reference - provider
+message ID - delivery status - provider/model metadata - token/usage
+metadata - safe metadata - timestamps
+
+Support: - conversation filtering and search - channel filters -
+assignment to employees - human takeover - AI pause/resume - handover
+reason - internal notes - message delivery tracking - media attachment
+metadata - duplicate inbound event protection - conversation
+retention/deletion rules
+
+Ensure conversation history is tenant-isolated and access-controlled. Do
+not expose internal system prompts, provider secrets, private tool data,
+or hidden reasoning to customers.
+
+======================================================================
+14. CRM, LEADS, APPOINTMENTS, AND FOLLOW-UPS
+======================================================================
+
+Implement: - Lead - Customer/contact - Appointment - FollowUp -
+ActivityLog - Employee assignment
+
+Lead fields should include: - tenant - name - email - phone - source
+channel - source conversation - status: new, contacted, qualified,
+converted, lost - requirements - assigned employee - consent and contact
+preferences where relevant - metadata - timestamps
+
+Appointments should support: - tenant timezone - start/end time -
+status - assigned employee/resource - customer contact - source
+conversation - cancellation/rescheduling - conflict checking -
+idempotent booking actions
+
+The AI may create or update CRM records only through authorized tools
+and validated business rules.
+
+Follow-ups and callbacks must respect customer consent, business hours,
+country-specific rules, and suppression/opt-out status.
+
+======================================================================
+15. API KEY AND AUTHENTICATION SECURITY
+======================================================================
+
+Implement separate credential types: 1. Private developer API keys. 2.
+Public website widget keys. 3. Internal service credentials. 4. External
+provider credentials.
+
+For private API keys: - Generate cryptographically secure random
+secrets. - Show the full secret only once. - Store only a secure hash. -
+Store a short prefix for identification. - Support permissions/scopes. -
+Support expiry and revocation. - Record last-used metadata. - Apply
+per-key and per-tenant rate limits. - Never log the full key.
+
+For public widget keys: - Restrict permissions to widget use. - Bind to
+agent and approved origins. - Do not grant privileged business APIs. -
+Apply abuse protection and rate limits. - Do not treat a public key as a
+secret.
+
+Use JWT for dashboard user sessions and appropriate API-key
+authentication for server integrations. Apply CSRF protections where
+relevant, secure cookie settings where used, CORS allowlists, HTTPS, and
+secure password handling.
+
+======================================================================
+16. BILLING, SUBSCRIPTIONS, AND USAGE METERING
+======================================================================
+
+Create subscription plans with configurable limits: - Number of agents -
+Team members - Monthly AI messages - Input/output tokens - Embedding
+usage - Storage - Website connections - WhatsApp connections - Voice
+minutes - API requests - Knowledge sources
+
+Implement: - Subscription - Plan - PlanFeature/PlanLimit - Invoice -
+Payment - UsageRecord - Usage aggregation - Provider cost records -
+Payment webhook events - Billing history
+
+Meter: - AI input tokens - AI output tokens - embedding tokens -
+model/provider - provider cost - channel - WhatsApp provider-reported
+usage/charges - voice connected seconds/minutes - storage bytes - API
+requests - timestamp and tenant
+
+Make usage recording idempotent and reconcilable. Distinguish estimated
+internal cost from actual provider-reported charges. Do not hardcode
+provider pricing; maintain versioned pricing metadata and verify current
+provider pricing.
+
+Support: - Ectama-managed usage billing - BYOK usage accounting where
+useful - subscription limits - usage alerts - hard/soft spending
+limits - invoice generation - payment verification on the server -
+failed payment handling - renewal/cancellation - plan
+upgrades/downgrades
+
+Never trust a frontend payment-success response. Verify payment
+signatures and provider webhooks server-side. Make billing provider code
+replaceable.
+
+======================================================================
+17. ANALYTICS AND SUPER ADMIN
+======================================================================
+
+Business dashboard analytics: - total conversations - active
+conversations - AI vs human handled conversations - leads captured -
+qualified leads - appointments - channel breakdown - AI token usage -
+provider costs - voice minutes - message delivery failures - usage
+against plan limits
+
+Ectama Super Admin: - tenants and status - users and memberships -
+agents - provider health - integrations - webhook failures - AI usage
+and cost - subscription and payment status - suspicious activity -
+platform health - abuse reports - audit logs
+
+Use aggregated tables or background jobs for expensive analytics. Do not
+run costly unbounded aggregation queries on every dashboard request.
+
+======================================================================
+18. BACKGROUND TASKS AND EVENT PROCESSING
+======================================================================
+
+Use Celery and Redis for jobs such as: - document processing - embedding
+generation - website crawling - knowledge synchronization - asynchronous
+AI tasks where appropriate - WhatsApp event processing - webhook
+delivery - scheduled callbacks - usage aggregation - billing
+reconciliation - analytics aggregation - cleanup and retention jobs
+
+Implement: - retries with exponential backoff where appropriate -
+bounded retry counts - task timeouts - idempotency - dead-letter/failure
+handling - monitoring - tenant-aware task context - safe task payloads
+
+Do not enqueue unbounded work from unauthenticated requests. Apply
+quotas and limits before scheduling expensive work.
+
+======================================================================
+19. SECURITY, PRIVACY, AND RELIABILITY
+======================================================================
+
+Security is a core product requirement, not a final optional task.
+
+Implement and test:
+
+TENANT ISOLATION: - Every tenant-owned record has tenant ownership. -
+Every query and mutation verifies tenant access. - Related objects must
+belong to the same tenant. - Retrieval queries must filter tenant and
+assigned knowledge base in the database. - Add cross-tenant security
+tests for every major resource. - Use PostgreSQL RLS where practical as
+defence in depth.
+
+SECRETS: - Encrypt provider credentials and channel tokens. - Use
+KMS/envelope encryption where possible. - Keep master encryption keys
+outside the database and source repository. - Rotate secrets where
+supported. - Redact secrets from logs and error messages.
+
+FILES: - Validate file extension, MIME type, signature, size, and
+content. - Store files outside the public web root. - Use malware
+scanning where practical. - Use signed, short-lived download URLs. -
+Prevent path traversal and unsafe file parsing.
+
+WEBHOOKS: - Verify provider signatures. - Validate timestamps/state
+where supported. - Use idempotency keys and unique provider event IDs. -
+Handle retries and out-of-order events. - Never trust unverified webhook
+payloads.
+
+AI: - Treat uploaded and retrieved content as untrusted. - Defend
+against prompt injection. - Do not expose hidden system instructions or
+other tenants’ data. - Validate tool calls server-side. - Apply tool
+allowlists and authorization. - Limit output, context, tool loops, time,
+and spending. - Provide a safe fallback when knowledge is
+insufficient. - Do not fabricate business facts, prices, availability,
+or completed actions.
+
+EXTERNAL NETWORK: - Prevent SSRF and access to internal/private network
+resources. - Restrict allowed hosts and ports. - Validate DNS and
+redirects. - Apply timeouts and response-size limits. - Use safe egress
+policies.
+
+PRIVACY: - Collect only necessary customer information. - Provide
+configurable retention and deletion. - Protect exports. - Avoid storing
+sensitive data unnecessarily. - Support consent and opt-out
+preferences. - Define recording/transcript retention. - Follow
+applicable data protection and communication requirements.
+
+RELIABILITY: - database backups and tested restores - health checks -
+structured logs - error monitoring - queue monitoring - database
+connection management - graceful provider failure - rate limits - load
+tests - disaster recovery documentation
+
+======================================================================
+20. FRONTEND DASHBOARD
+======================================================================
+
+Build a professional, responsive React dashboard.
+
+Business dashboard navigation:
+
+-   Overview
+-   AI Agents
+    -   Create Agent
+    -   Agent Settings
+    -   Instructions
+    -   Model Selection
+    -   Tools
+-   Knowledge Base
+    -   Documents
+    -   Website Sources
+    -   API Integrations
+    -   Database Integrations
+    -   Products and Services
+-   Channels
+    -   Website
+    -   WhatsApp
+    -   Voice
+    -   Mobile/API
+-   Conversations
+    -   All
+    -   Website
+    -   WhatsApp
+    -   Voice Calls
+    -   Human Handover
+-   CRM
+    -   Leads
+    -   Customers
+    -   Appointments
+    -   Follow-ups
+-   Automations
+-   Analytics
+-   API and Developers
+    -   API Keys
+    -   Webhooks
+    -   Documentation
+-   Team Members
+-   Billing and Subscription
+-   Settings
+
+Business onboarding flow: 1. Register. 2. Create business workspace. 3.
+Enter business details. 4. Create first AI agent. 5. Select
+provider/model and billing mode. 6. Upload documents or add website/API
+knowledge. 7. Test the agent in a playground. 8. Connect website or
+other channel. 9. Publish the agent. 10. Monitor conversations and
+leads.
+
+ECTAMA CUSTOMER JOURNEY (self-service SaaS — every step below must be
+completable by the business owner alone, with no manual/human
+intervention from the Ectama team):
+
+1. Register — Business owner creates an account and verifies their
+   email.
+2. Create workspace — Business name, website, industry, and business
+   details.
+3. Create AI agent — Give the agent a name, instructions, language, and
+   AI provider.
+4. Connect knowledge — Upload PDFs, add website URLs, or connect
+   external data sources.
+5. Connect channels — Website widget, mobile app, WhatsApp, and
+   eventually voice.
+6. Test and publish — Test the agent, install the widget, and activate
+   it.
+7. Subscribe — Select a plan, pay online, and monitor monthly usage.
+
+Every screen, API, and workflow in this specification must support this
+journey end-to-end without requiring Ectama staff to manually provision
+a tenant, agent, channel, or subscription on the customer's behalf.
+Manual/Django-admin-only setup paths are acceptable only for Super Admin
+operational tasks (platform health, abuse response), never for a step a
+paying customer is expected to complete themselves.
+
+Super Admin dashboard should be separately permission-protected.
+
+Use consistent UI components, loading states, empty states, error
+states, validation, responsive layouts, and accessible controls. Do not
+expose private provider credentials or internal tenant data in frontend
+state unnecessarily.
+
+======================================================================
+21. API DESIGN
+======================================================================
+
+Use versioned routes under /api/v1/.
+
+Suggested route groups:
+
+/auth/ /tenants/ /memberships/ /agents/ /ai/providers/ /ai/models/
+/ai/credentials/ /knowledge/bases/ /knowledge/sources/
+/knowledge/documents/ /integrations/ /chat/ /conversations/ /channels/
+/channels/whatsapp/ /voice/ /leads/ /customers/ /appointments/
+/api-keys/ /webhooks/ /usage/ /billing/ /analytics/ /admin/
+
+Use consistent: - serializers and validation - pagination - filtering -
+ordering - error formats - authentication - permissions - rate limits -
+API documentation
+
+Separate dashboard APIs from public developer APIs where their
+authentication and permissions differ.
+
+Generate OpenAPI documentation using drf-spectacular or an equivalent
+maintained tool.
+
+======================================================================
+22. TESTING AND ACCEPTANCE REQUIREMENTS
+======================================================================
+
+Write automated tests throughout development, not only at the end.
+
+Test: - user registration and login - tenant creation - multiple
+memberships - role permissions - agent creation and configuration -
+provider selection - BYOK credential isolation - document ingestion -
+vector retrieval - tenant-filtered retrieval - website crawling
+security - external API security - tool authorization - API key
+generation and revocation - website widget API - webhook signature
+validation - webhook idempotency - WhatsApp message routing -
+conversation isolation - human handover - lead creation - appointment
+conflicts - voice call state transitions - consent checks - usage
+recording idempotency - payment verification - rate limiting -
+background task retries
+
+Mandatory cross-tenant tests: - Tenant A cannot read Tenant B’s
+documents. - Tenant A cannot search Tenant B’s knowledge. - Tenant A
+cannot read Tenant B’s conversations. - Tenant A cannot use Tenant B’s
+credentials. - Tenant A cannot use Tenant B’s channel connections. -
+Tenant A cannot modify Tenant B’s leads or appointments. - A public
+widget key cannot access private APIs. - A revoked API key cannot
+authenticate. - A duplicate webhook event cannot create duplicate
+messages or actions.
+
+Use unit, integration, API, security, and realistic end-to-end tests.
+Mock external providers in automated tests, and provide a separate
+manual integration test guide for real provider credentials.
+
+======================================================================
+23. DEVELOPMENT MILESTONES
+======================================================================
+
+Implement the project in this order:
+
+MILESTONE 1 – FOUNDATION - Inspect repository. - Django configuration. -
+Custom user model if needed. - Tenant and membership models. -
+Registration and authentication. - Roles and permissions. - Tenant
+isolation. - PostgreSQL migrations. - Automated tests.
+
+MILESTONE 2 – AGENTS AND PROVIDERS - AI agent management. - AI
+provider/model registry. - OpenAI adapter. - Gemini adapter. - BYOK and
+Ectama-managed credentials. - Model selection and validation. - Tests.
+
+MILESTONE 3 – KNOWLEDGE - Knowledge bases. - Document upload and
+parsing. - Celery processing. - Embeddings. - pgvector. - Website
+ingestion. - External REST API sources. - Restricted read-only database
+sources. - Tenant-safe retrieval. - Tests.
+
+MILESTONE 4 – CENTRAL AI ENGINE - Provider router. - Context builder. -
+RAG integration. - Conversation memory. - Tool registry. - Tool
+execution permissions. - Response validation. - Usage recording. -
+Tests.
+
+MILESTONE 5 – WEBSITE AND DEVELOPER API - API key management. - Public
+widget keys. - Chat API. - JavaScript widget. - Domain verification. -
+Streaming and conversation history. - Human handover. - Tests.
+
+MILESTONE 6 – WHATSAPP - Meta app configuration. - Embedded Signup. -
+Secure account connections. - Centralized verified webhooks. - Message
+routing. - Outgoing messages. - Templates and messaging-window rules. -
+Usage tracking. - Tests.
+
+MILESTONE 7 – CRM AND VOICE - Leads and customers. - Appointments. -
+Follow-ups. - Human handover. - SIP provider adapter. - Inbound voice. -
+Authorized outbound callbacks. - Call records and analytics. -
+Compliance controls. - Tests.
+
+MILESTONE 8 – BILLING AND PRODUCTION - Plans and subscriptions. - Usage
+metering. - Payment integration. - Analytics. - Super Admin. -
+Monitoring. - Backups. - Security review. - Load testing. - Deployment
+documentation.
+
+Do not begin a later milestone until the current milestone has a working
+implementation, migrations, automated tests, and documented setup.
+
+======================================================================
+24. DEFINITION OF A WORKING MVP
+======================================================================
+
+The first MVP is complete only when all of the following work
+end-to-end:
+
+1.  A business can register.
+2.  The business gets its own isolated workspace.
+3.  The business can create an AI agent.
+4.  The business can select OpenAI or Gemini.
+5.  The business can upload a PDF.
+6.  Ectama processes the document and stores searchable embeddings.
+7.  The business can test the agent.
+8.  The business can generate a restricted website integration key.
+9.  The business can install the website chat widget.
+10. A real website visitor can ask a question.
+11. The AI retrieves the correct tenant’s business information.
+12. The AI sends a relevant response through the widget.
+13. The conversation is saved and visible in the business dashboard.
+14. A second business can independently create an agent and use the
+    system.
+15. Automated tests prove that the second business cannot access the
+    first business’s data or credentials.
+
+WhatsApp, CRM automation, and voice calling are subsequent milestones.
+Do not mark them as complete until tested against real provider
+sandboxes or approved production integrations as appropriate.
+
+======================================================================
+25. DEPLOYMENT AND OPERATIONS
+======================================================================
+
+Provide reproducible development and production environments.
+
+Use Docker Compose for local development with: - Django application -
+ASGI application - Celery worker - Celery scheduler where needed -
+Redis - PostgreSQL with pgvector - Nginx where appropriate
+
+Production should use: - HTTPS - Nginx/reverse proxy - separate web and
+worker processes - secure PostgreSQL - Redis protected from public
+access - private object storage - environment/secrets management -
+database backups - tested restore process - structured logs - monitoring
+and alerting - health checks - deployment and rollback instructions
+
+Do not expose PostgreSQL, Redis, internal admin endpoints, or worker
+management interfaces publicly.
+
+Document environment variables in an example file with placeholders
+only. Never commit real credentials, API keys, tokens, private
+certificates, or production database passwords.
+
+======================================================================
+26. HOW YOU MUST WORK ON THIS REPOSITORY
+======================================================================
+
+For every milestone:
+
+1.  Inspect the current code and identify reusable components.
+2.  Summarize the planned changes briefly.
+3.  Implement the smallest coherent set of changes.
+4.  Create or update migrations.
+5.  Run Django checks.
+6.  Run relevant automated tests.
+7.  Fix failures before claiming completion.
+8.  Inspect for tenant isolation and security regressions.
+9.  Update API documentation.
+10. Update setup/deployment documentation.
+11. Report exact files created, modified, and removed.
+12. Report test commands and actual results.
+13. List external configuration or credentials still required.
+14. State known limitations and next milestone.
+
+Do not: - replace the entire project without authorization - create
+duplicate models or apps without inspecting existing code - hardcode
+credentials - place provider calls inside views - put private API keys
+in frontend code - trust client-supplied tenant IDs - use unverified
+WhatsApp automation - execute arbitrary AI-generated SQL or code - claim
+legal or provider approval without evidence - skip tests or migrations -
+mark incomplete integrations as complete - create unnecessary
+microservices before there is a demonstrated need
+
+If the repository already contains an implementation that conflicts with
+this specification, inspect it, explain the conflict, and propose a safe
+migration rather than silently destroying working functionality.
+
+======================================================================
+FINAL PRODUCT GOAL
+======================================================================
+
+Build Ectama as a secure, scalable, multi-tenant AI Business Assistant
+SaaS where a business registers once, creates and configures its AI
+agent, selects its AI provider, supplies business knowledge through
+documents, websites, and authorized external systems, and connects that
+same agent to its website, mobile application, WhatsApp Business
+account, and supported telephone system.
+
+The same central AI engine must understand the business’s information,
+maintain channel-appropriate conversation context, answer customer
+questions, retrieve live business data through authorized integrations,
+capture and qualify leads, schedule appointments, arrange permitted
+callbacks, and hand over conversations to human employees.
+
+The platform must isolate every tenant’s data and credentials, meter
+usage accurately, enforce subscription limits, provide a clear business
+dashboard and developer API, and be maintainable by a small engineering
+team.
+
+Start by inspecting the existing repository and reporting its current
+structure, technology stack, completed functionality, missing
+functionality, and any risks. Then propose the exact implementation plan
+for MILESTONE 1. Do not make destructive changes before reporting the
+inspection findings and obtaining authorization if a change would
+overwrite or remove existing work.

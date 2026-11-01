@@ -23,10 +23,10 @@ class AgentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Agent
         fields = [
-            "id", "public_widget_id", "name", "description", "agent_type",
+            "id", "public_widget_id", "allowed_origins", "name", "description", "agent_type",
             "primary_goal", "secondary_goals", "system_prompt", "greeting",
             "language", "tone", "must_always_mention", "must_never_say",
-            "escalation_rules", "status", "model", "temperature", "max_tokens",
+            "escalation_rules", "status", "provider", "model", "temperature", "max_tokens",
             "tools", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "public_widget_id", "tools", "created_at", "updated_at"]
@@ -40,3 +40,14 @@ class AgentSerializer(serializers.ModelSerializer):
         if not 1 <= value <= 4000:
             raise serializers.ValidationError("max_tokens must be between 1 and 4000.")
         return value
+
+    def validate_allowed_origins(self, value):
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise serializers.ValidationError("allowed_origins must be a list of origin strings.")
+        normalized = []
+        for origin in value:
+            origin = origin.strip().rstrip("/")
+            if not origin.startswith("http://") and not origin.startswith("https://"):
+                raise serializers.ValidationError(f"Invalid origin: {origin!r}. Must include scheme (https://...).")
+            normalized.append(origin)
+        return normalized

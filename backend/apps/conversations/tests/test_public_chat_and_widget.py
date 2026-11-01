@@ -128,3 +128,47 @@ class WidgetChatTests(APITestCase):
     def test_dashboard_endpoints_do_not_get_wildcard_cors(self):
         response = self.client.get("/api/v1/agents/", HTTP_ORIGIN="https://customer-site.example")
         self.assertNotIn("Access-Control-Allow-Origin", response)
+
+    def test_widget_config_rejects_unregistered_origin_once_restricted(self):
+        self.agent.allowed_origins = ["https://allowed.example"]
+        self.agent.save(update_fields=["allowed_origins"])
+
+        response = self.client.get(
+            f"/api/v1/widget/{self.agent.public_widget_id}/config/", HTTP_ORIGIN="https://not-allowed.example"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_widget_config_allows_registered_origin(self):
+        self.agent.allowed_origins = ["https://allowed.example"]
+        self.agent.save(update_fields=["allowed_origins"])
+
+        response = self.client.get(
+            f"/api/v1/widget/{self.agent.public_widget_id}/config/", HTTP_ORIGIN="https://allowed.example"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("apps.ai.orchestrator.get_provider_for_agent", return_value=FakeProvider())
+    def test_widget_chat_stream_returns_sse_delta_and_done_events(self, mock_provider):
+        response = self.client.post(
+            f"/api/v1/widget/{self.agent.public_widget_id}/chat/",
+            {"message": "Hello", "stream": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "text/event-stream")
+        body = b"".join(response.streaming_content).decode()
+        self.assertIn("event: delta", body)
+        self.assertIn("event: done", body)
+
+    @patch("apps.ai.orchestrator.get_provider_for_agent", return_value=FakeProvider())
+    def test_widget_chat_rejects_unregistered_origin_once_restricted(self, mock_provider):
+        self.agent.allowed_origins = ["https://allowed.example"]
+        self.agent.save(update_fields=["allowed_origins"])
+
+        response = self.client.post(
+            f"/api/v1/widget/{self.agent.public_widget_id}/chat/",
+            {"message": "Hello"},
+            format="json",
+            HTTP_ORIGIN="https://not-allowed.example",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

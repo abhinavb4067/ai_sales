@@ -43,6 +43,7 @@ class KnowledgeDocumentViewSet(TenantScopedQuerySetMixin, viewsets.ModelViewSet)
                 source_type=source_type,
                 file=validated.get("file"),
                 source_url=validated.get("source_url", ""),
+                source_config=validated.get("source_config", {}),
             )
             from apps.knowledge.tasks import process_document_task
 

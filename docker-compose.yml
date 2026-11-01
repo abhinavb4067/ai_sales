@@ -1,0 +1,93 @@
+version: "3.9"
+
+# Local/dev reproducible environment (master spec section 25). Mirrors
+# production topology (separate web/worker processes, Postgres+pgvector,
+# Redis) but with dev-friendly defaults (DEBUG settings, bind-mounted
+# code, runserver instead of daphne for live-reload). Production should
+# use this as a reference, not as-is: no TLS termination, no secrets
+# management, and Postgres/Redis ports are published to the host only
+# because this is meant for local development.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DATABASE:-ai_sales}
+      POSTGRES_USER: ${POSTGRES_USER:-ai_sales}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ai_sales} -d ${POSTGRES_DATABASE:-ai_sales}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    env_file: ./backend/.env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CHANNELS_REDIS_URL: redis://redis:6379/2
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_worker:
+    build: ./backend
+    restart: unless-stopped
+    command: celery -A config worker -l info
+    env_file: ./backend/.env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CHANNELS_REDIS_URL: redis://redis:6379/2
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000/api/v1
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

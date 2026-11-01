@@ -4,7 +4,7 @@ from rest_framework.test import APITestCase
 from apps.agents.models import Agent
 from apps.core.testing import authenticated_client, create_business_with_owner
 from apps.knowledge.models import KnowledgeChunk, KnowledgeDocument
-from apps.knowledge.retrieval import MySQLKeywordRetriever
+from apps.knowledge.retrieval import KeywordRetriever
 from apps.knowledge.services import ingest_manual_text
 
 
@@ -62,16 +62,16 @@ class KnowledgeRetrievalScopeTests(APITestCase):
         )
 
     def test_shared_knowledge_visible_to_all_agents(self):
-        retriever = MySQLKeywordRetriever()
+        retriever = KeywordRetriever()
         results = retriever.search(self.business.id, self.agent_support.id, "weekday business questions")
         self.assertTrue(any("Company FAQ" == r.document_title for r in results))
 
     def test_agent_specific_knowledge_not_visible_to_other_agent(self):
-        retriever = MySQLKeywordRetriever()
+        retriever = KeywordRetriever()
         results = retriever.search(self.business.id, self.agent_support.id, "confidential sales pricing information")
         self.assertFalse(any(r.document_title == "Sales Pricing" for r in results))
 
     def test_agent_specific_knowledge_visible_to_owning_agent(self):
-        retriever = MySQLKeywordRetriever()
+        retriever = KeywordRetriever()
         results = retriever.search(self.business.id, self.agent_sales.id, "confidential sales pricing information")
         self.assertTrue(any(r.document_title == "Sales Pricing" for r in results))

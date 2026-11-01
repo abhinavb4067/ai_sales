@@ -41,3 +41,4 @@ class WidgetChatRequestSerializer(serializers.Serializer):
     conversation_id = serializers.IntegerField(required=False, allow_null=True)
     message = serializers.CharField(max_length=4000, allow_blank=False)
     session_id = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    stream = serializers.BooleanField(required=False, default=False)

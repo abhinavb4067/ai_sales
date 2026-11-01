@@ -12,6 +12,11 @@ const AGENT_TYPES = ["sales", "support", "combined"];
 const GOALS = ["sales", "customer_support", "sales_and_support", "lead_generation", "information"];
 const TONES = ["professional", "friendly", "casual", "formal"];
 const STATUSES = ["draft", "active", "disabled"];
+const PROVIDERS = [
+  { value: "openai", label: "OpenAI", defaultModel: "gpt-4o-mini" },
+  { value: "gemini", label: "Google Gemini", defaultModel: "gemini-1.5-flash" },
+  { value: "local", label: "Local / Self-hosted", defaultModel: "" },
+];
 
 const DEFAULT_FORM = {
   name: "",
@@ -23,9 +28,11 @@ const DEFAULT_FORM = {
   status: "draft",
   system_prompt: "",
   greeting: "",
+  provider: "openai",
   model: "gpt-4o-mini",
   temperature: 0.4,
   max_tokens: 800,
+  allowed_origins: [],
 };
 
 function buildEmbedSnippet(widgetId) {
@@ -61,6 +68,20 @@ export default function AgentFormPage() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm({ ...form, [name]: name === "temperature" || name === "max_tokens" ? Number(value) : value });
+  };
+
+  const handleProviderChange = (e) => {
+    const provider = e.target.value;
+    const preset = PROVIDERS.find((p) => p.value === provider);
+    setForm({ ...form, provider, model: preset?.defaultModel || form.model });
+  };
+
+  const handleOriginsChange = (e) => {
+    const allowed_origins = e.target.value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    setForm({ ...form, allowed_origins });
   };
 
   const handleSubmit = async (e) => {
@@ -158,6 +179,15 @@ export default function AgentFormPage() {
         </Card>
 
         <Card title="Model Settings">
+          <FormField label="AI provider">
+            <select name="provider" value={form.provider} onChange={handleProviderChange}>
+              {PROVIDERS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </FormField>
           <FormField label="Model">
             <input name="model" value={form.model} onChange={handleChange} />
           </FormField>
@@ -191,6 +221,19 @@ export default function AgentFormPage() {
               this agent. No API key is exposed — the widget ID is a public identifier.
             </p>
             <pre className="embed-snippet">{buildEmbedSnippet(form.public_widget_id)}</pre>
+
+            <FormField label="Allowed website domains (one per line, e.g. https://www.yoursite.com). Leave empty to allow any domain while you're testing.">
+              <textarea
+                rows={3}
+                value={(form.allowed_origins || []).join("\n")}
+                onChange={handleOriginsChange}
+                placeholder="https://www.yoursite.com"
+              />
+            </FormField>
+            <p className="text-muted">
+              Once you add at least one domain, the widget will only load on those exact domains — register every
+              domain you use, including any staging site, before activating.
+            </p>
           </Card>
         )}
 

@@ -1,9 +1,43 @@
 import json
+import secrets
 
 from apps.conversations.models import Conversation
 from apps.conversations.services import run_chat_turn
 from apps.integrations.models import Integration, WebhookDelivery
 from apps.integrations.providers.registry import get_integration_provider
+
+
+def provision_whatsapp_via_embedded_signup(*, business, agent, code: str, waba_id: str, phone_number_id: str) -> Integration:
+    """Completes Meta's Embedded Signup flow server-side: exchanges the
+    authorization code for an access token, subscribes the platform app
+    to the business's WABA so inbound webhooks start flowing, then
+    creates the Integration row — no manual credential entry, no
+    Ectama-staff step, matching the self-service customer journey (step
+    5: "Connect channels").
+    """
+    from apps.integrations.providers.whatsapp import exchange_embedded_signup_code, subscribe_app_to_waba
+
+    access_token = exchange_embedded_signup_code(code)
+    subscribe_app_to_waba(access_token=access_token, waba_id=waba_id)
+
+    credentials = {
+        "access_token": access_token,
+        # Embedded Signup doesn't hand the business their own app_secret
+        # (it's the platform's) — webhook signature verification for
+        # these auto-provisioned integrations uses the platform's own
+        # app secret instead, read from settings in the webhook view
+        # rather than per-integration.
+        "app_secret": "",
+        "verify_token": secrets.token_urlsafe(24),
+        "waba_id": waba_id,
+    }
+    return Integration.objects.create(
+        business=business,
+        agent=agent,
+        provider=Integration.Provider.WHATSAPP,
+        external_account_id=phone_number_id,
+        credentials=json.dumps(credentials),
+    )
 
 
 def get_or_create_conversation(*, business, agent, channel, external_customer_ref) -> Conversation:

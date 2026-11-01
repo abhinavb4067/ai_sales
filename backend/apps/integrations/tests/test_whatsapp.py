@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+from datetime import timedelta
 from unittest.mock import patch
 
 from rest_framework import status
@@ -51,6 +52,122 @@ def _whatsapp_payload(from_number="15551234567", text="Hi, do you deliver?", mes
             }
         ]
     }
+
+
+class WhatsAppProviderUnitTests(APITestCase):
+    def setUp(self):
+        from apps.integrations.providers.whatsapp import WhatsAppProvider
+
+        self.provider = WhatsAppProvider()
+
+    def test_parses_image_message_with_caption(self):
+        payload = {
+            "entry": [{"changes": [{"value": {"messages": [
+                {"from": "1555", "id": "wamid.1", "type": "image", "image": {"id": "media123", "caption": "See attached"}}
+            ]}}]}]
+        }
+        messages = self.provider.parse_webhook_payload(payload)
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].text, "See attached")
+        self.assertEqual(messages[0].media_type, "image")
+        self.assertEqual(messages[0].media_id, "media123")
+
+    def test_parses_media_message_without_caption_as_placeholder(self):
+        payload = {
+            "entry": [{"changes": [{"value": {"messages": [
+                {"from": "1555", "id": "wamid.1", "type": "document", "document": {"id": "doc1"}}
+            ]}}]}]
+        }
+        messages = self.provider.parse_webhook_payload(payload)
+        self.assertEqual(messages[0].text, "[Customer sent a document]")
+
+    def test_unsupported_message_type_is_skipped_not_crashed(self):
+        payload = {
+            "entry": [{"changes": [{"value": {"messages": [
+                {"from": "1555", "id": "wamid.1", "type": "reaction", "reaction": {"emoji": "👍"}}
+            ]}}]}]
+        }
+        messages = self.provider.parse_webhook_payload(payload)
+        self.assertEqual(messages, [])
+
+    @patch("apps.integrations.providers.whatsapp.requests.post")
+    def test_send_template_message_posts_template_payload(self, mock_post):
+        integration = Integration(
+            external_account_id="123",
+            credentials=json.dumps({"access_token": ACCESS_TOKEN, "app_secret": APP_SECRET, "verify_token": VERIFY_TOKEN}),
+        )
+        self.provider.send_template_message(
+            integration=integration, to_ref="1555", template_name="appointment_reminder",
+            language_code="en_US", parameters=["Tomorrow 3pm"],
+        )
+        mock_post.assert_called_once()
+        sent_body = mock_post.call_args.kwargs["json"]
+        self.assertEqual(sent_body["type"], "template")
+        self.assertEqual(sent_body["template"]["name"], "appointment_reminder")
+        self.assertEqual(sent_body["template"]["components"][0]["parameters"][0]["text"], "Tomorrow 3pm")
+
+    def test_within_messaging_window(self):
+        from django.utils import timezone
+
+        self.assertTrue(self.provider.is_within_messaging_window(last_customer_message_at=timezone.now()))
+        self.assertFalse(self.provider.is_within_messaging_window(last_customer_message_at=None))
+        self.assertFalse(
+            self.provider.is_within_messaging_window(last_customer_message_at=timezone.now() - timedelta(hours=25))
+        )
+
+
+class WhatsAppEmbeddedSignupTests(APITestCase):
+    def setUp(self):
+        self.user, self.business = create_business_with_owner()
+        self.client_auth = authenticated_client(self.user)
+        self.agent = Agent.objects.create(business=self.business, name="Support Agent", status=Agent.Status.ACTIVE)
+
+    def test_fails_clearly_when_platform_not_configured(self):
+        response = self.client_auth.post(
+            "/api/v1/integrations/whatsapp/embedded-signup/",
+            {"agent_id": self.agent.id, "code": "abc", "waba_id": "waba1", "phone_number_id": "phone1"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not configured", response.data["detail"])
+
+    @patch("django.conf.settings.WHATSAPP_META_APP_ID", "test-app-id")
+    @patch("django.conf.settings.WHATSAPP_META_APP_SECRET", "test-app-secret")
+    @patch("apps.integrations.providers.whatsapp.requests.post")
+    @patch("apps.integrations.providers.whatsapp.requests.get")
+    def test_completes_signup_and_creates_integration(self, mock_get, mock_post):
+        mock_get.return_value.json.return_value = {"access_token": "long-lived-token"}
+        mock_get.return_value.raise_for_status = lambda: None
+        mock_post.return_value.raise_for_status = lambda: None
+
+        response = self.client_auth.post(
+            "/api/v1/integrations/whatsapp/embedded-signup/",
+            {"agent_id": self.agent.id, "code": "abc123", "waba_id": "waba1", "phone_number_id": "phone1"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+
+        integration = Integration.objects.get(business=self.business)
+        self.assertEqual(integration.external_account_id, "phone1")
+        self.assertEqual(integration.provider, Integration.Provider.WHATSAPP)
+        creds = json.loads(integration.credentials)
+        self.assertEqual(creds["access_token"], "long-lived-token")
+        self.assertEqual(creds["waba_id"], "waba1")
+
+        mock_post.assert_called_once()
+        subscribe_url = mock_post.call_args[0][0]
+        self.assertIn("waba1/subscribed_apps", subscribe_url)
+
+    def test_cannot_provision_for_another_businesss_agent(self):
+        other_user, other_business = create_business_with_owner(email="other@example.com")
+        other_agent = Agent.objects.create(business=other_business, name="Other Agent")
+
+        response = self.client_auth.post(
+            "/api/v1/integrations/whatsapp/embedded-signup/",
+            {"agent_id": other_agent.id, "code": "abc", "waba_id": "waba1", "phone_number_id": "phone1"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 404)
 
 
 class IntegrationManagementTests(APITestCase):

@@ -1,5 +1,5 @@
 """Settings for automated tests — SQLite in-memory, no external services
-required (MySQL/Redis/OpenAI). Never used in production."""
+required (Postgres/Redis/OpenAI). Never used in production."""
 from .base import *  # noqa
 
 DATABASES = {

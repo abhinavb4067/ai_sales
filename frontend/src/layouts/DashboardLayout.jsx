@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: "/knowledge", label: "Knowledge" },
   { to: "/leads", label: "Leads" },
   { to: "/handoff", label: "Human Handoff" },
+  { to: "/analytics", label: "Analytics" },
   { to: "/api-keys", label: "API Keys" },
   { to: "/billing", label: "Billing" },
   { to: "/integrations", label: "Integrations" },

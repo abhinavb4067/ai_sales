@@ -64,8 +64,32 @@ TOOL_SCHEMAS = {
     },
     "book_appointment": {
         "name": "book_appointment",
-        "description": "Book an appointment/meeting with the customer.",
-        "parameters": {"type": "object", "properties": {"preferred_time": {"type": "string"}}},
+        "description": "Book an appointment/meeting with the customer at a specific start/end time "
+        "(ISO 8601, e.g. 2026-11-05T15:00:00+05:30). Rejected server-side if the slot conflicts "
+        "with an existing appointment.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "start_time": {"type": "string", "description": "ISO 8601 datetime."},
+                "end_time": {"type": "string", "description": "ISO 8601 datetime."},
+                "customer_name": {"type": "string"},
+                "customer_email": {"type": "string"},
+                "customer_phone": {"type": "string"},
+            },
+            "required": ["start_time", "end_time"],
+        },
+    },
+    "schedule_follow_up": {
+        "name": "schedule_follow_up",
+        "description": "Schedule a future follow-up/check-in with the customer (not a calendared appointment).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "due_at": {"type": "string", "description": "ISO 8601 datetime."},
+                "reason": {"type": "string"},
+            },
+            "required": ["due_at"],
+        },
     },
     "human_handoff": {
         "name": "human_handoff",

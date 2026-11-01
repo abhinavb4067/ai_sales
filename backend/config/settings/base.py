@@ -28,6 +28,7 @@ DJANGO_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
 ]
 
 THIRD_PARTY_APPS = [
@@ -47,10 +48,13 @@ LOCAL_APPS = [
     "apps.knowledge",
     "apps.conversations",
     "apps.leads",
+    "apps.appointments",
     "apps.ai",
     "apps.apikeys",
     "apps.billing",
     "apps.integrations",
+    "apps.superadmin",
+    "apps.analytics",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -90,17 +94,16 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 # ---------------------------------------------------------------------------
-# Database (MySQL)
+# Database (PostgreSQL + pgvector)
 # ---------------------------------------------------------------------------
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.mysql",
-        "NAME": env("MYSQL_DATABASE", default="ai_sales"),
-        "USER": env("MYSQL_USER", default="ai_sales"),
-        "PASSWORD": env("MYSQL_PASSWORD", default=""),
-        "HOST": env("MYSQL_HOST", default="127.0.0.1"),
-        "PORT": env("MYSQL_PORT", default="3306"),
-        "OPTIONS": {"charset": "utf8mb4"},
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": env("POSTGRES_DATABASE", default="ai_sales"),
+        "USER": env("POSTGRES_USER", default="ai_sales"),
+        "PASSWORD": env("POSTGRES_PASSWORD", default=""),
+        "HOST": env("POSTGRES_HOST", default="127.0.0.1"),
+        "PORT": env("POSTGRES_PORT", default="5432"),
     }
 }
 
@@ -212,6 +215,14 @@ RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET", default="")
 RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET", default="")
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:5173")
 
+# WhatsApp Embedded Signup (Meta) — platform-level app credentials used to
+# exchange a business's Embedded Signup authorization code for an access
+# token server-side. A business never handles its own app id/secret; see
+# apps.integrations.providers.whatsapp.exchange_embedded_signup_code.
+WHATSAPP_META_APP_ID = env("WHATSAPP_META_APP_ID", default="")
+WHATSAPP_META_APP_SECRET = env("WHATSAPP_META_APP_SECRET", default="")
+WHATSAPP_META_CONFIG_ID = env("WHATSAPP_META_CONFIG_ID", default="")
+
 # ---------------------------------------------------------------------------
 # AI provider configuration (see apps.ai.providers)
 # ---------------------------------------------------------------------------
@@ -219,6 +230,24 @@ AI_PROVIDER = env("AI_PROVIDER", default="openai")
 OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
 OPENAI_DEFAULT_MODEL = env("OPENAI_DEFAULT_MODEL", default="gpt-4o-mini")
 OPENAI_EMBEDDING_MODEL = env("OPENAI_EMBEDDING_MODEL", default="text-embedding-3-small")
+GEMINI_API_KEY = env("GEMINI_API_KEY", default="")
+GEMINI_DEFAULT_MODEL = env("GEMINI_DEFAULT_MODEL", default="gemini-1.5-flash")
+GEMINI_EMBEDDING_MODEL = env("GEMINI_EMBEDDING_MODEL", default="text-embedding-004")
+
+# Optional dedicated vector store (Qdrant) for knowledge retrieval — see
+# apps.knowledge.vector_store. Leave QDRANT_URL blank to keep using the
+# in-process cosine-similarity retriever (fine at current scale).
+QDRANT_URL = env("QDRANT_URL", default="")
+QDRANT_API_KEY = env("QDRANT_API_KEY", default="")
+QDRANT_COLLECTION = env("QDRANT_COLLECTION", default="ectama_knowledge_chunks")
+
+# Dimensionality of the native pgvector column (apps.knowledge.models
+# KnowledgeChunk.embedding_vector) — must match whichever embedding model
+# get_embedding_provider() actually calls (OpenAI text-embedding-3-small
+# = 1536, Gemini text-embedding-004 = 768). Changing this after knowledge
+# has already been embedded requires a migration AND re-embedding every
+# existing KnowledgeChunk — it is not retroactive.
+EMBEDDING_VECTOR_DIMENSIONS = env.int("EMBEDDING_VECTOR_DIMENSIONS", default=1536)
 
 # ---------------------------------------------------------------------------
 # Storage abstraction (see apps.core.storage)
@@ -253,3 +282,22 @@ LOGGING = {
         "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
     },
 }
+
+# ---------------------------------------------------------------------------
+# Error monitoring — optional. No-op unless SENTRY_DSN is set, so the
+# sentry-sdk dependency is only actually imported (and thus only needs to
+# be installed) in environments that configure it.
+# ---------------------------------------------------------------------------
+SENTRY_DSN = env("SENTRY_DSN", default="")
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.django import DjangoIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[DjangoIntegration(), CeleryIntegration()],
+        environment=env("DJANGO_ENV", default="dev"),
+        traces_sample_rate=float(env("SENTRY_TRACES_SAMPLE_RATE", default="0")),
+        send_default_pii=False,
+    )

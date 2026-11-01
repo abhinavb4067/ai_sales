@@ -37,10 +37,11 @@ def extract_csv(file_obj) -> str:
 
 
 def extract_url(url: str) -> str:
-    import requests
     from bs4 import BeautifulSoup
 
-    response = requests.get(url, timeout=15, headers={"User-Agent": "AI-Sales-Support-Agent/1.0"})
+    from apps.knowledge.net_safety import safe_get
+
+    response = safe_get(url)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "lxml")
     for tag in soup(["script", "style", "nav", "footer", "header"]):
@@ -48,6 +49,27 @@ def extract_url(url: str) -> str:
     text = soup.get_text(separator="\n")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return "\n".join(lines)
+
+
+def extract_api_source(url: str, *, headers: dict | None = None) -> str:
+    """Fetches a configured, business-supplied REST API endpoint and
+    flattens the response into retrievable text. JSON responses are
+    pretty-printed (field names and values both become searchable text);
+    anything else is treated as plain text. No AI-generated request is
+    ever made here — the endpoint/headers are configured once by the
+    business, not invented per-query (see SECURITY section 8 of the
+    master spec: never let the AI invent arbitrary URLs)."""
+    import json
+
+    from apps.knowledge.net_safety import safe_get
+
+    response = safe_get(url, headers=headers)
+    response.raise_for_status()
+
+    content_type = response.headers.get("Content-Type", "")
+    if "application/json" in content_type:
+        return json.dumps(response.json(), indent=2)
+    return response.text
 
 
 EXTRACTORS = {
@@ -62,6 +84,8 @@ def extract_text_for_document(document) -> str:
     source_type = document.source_type
     if source_type == "url":
         return extract_url(document.source_url)
+    if source_type == "api":
+        return extract_api_source(document.source_url, headers=(document.source_config or {}).get("headers"))
 
     extractor = EXTRACTORS.get(source_type)
     if extractor is None:

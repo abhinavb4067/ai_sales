@@ -77,6 +77,54 @@ def _execute_request_callback(*, business, agent, conversation, arguments: dict)
     return {"lead_id": lead.id}
 
 
+def _execute_book_appointment(*, business, agent, conversation, arguments: dict) -> dict:
+    from django.core.exceptions import ValidationError
+    from django.utils.dateparse import parse_datetime
+
+    from apps.appointments.services import book_appointment
+    from apps.leads.services import get_or_create_lead_for_conversation
+
+    start_time = parse_datetime(arguments.get("start_time", ""))
+    end_time = parse_datetime(arguments.get("end_time", ""))
+    if start_time is None or end_time is None:
+        return {"error": "start_time and end_time must be valid ISO 8601 datetimes."}
+
+    lead = get_or_create_lead_for_conversation(business=business, agent=agent, conversation=conversation)
+    try:
+        appointment = book_appointment(
+            business=business,
+            agent=agent,
+            conversation=conversation,
+            lead=lead,
+            start_time=start_time,
+            end_time=end_time,
+            customer_name=arguments.get("customer_name", ""),
+            customer_email=arguments.get("customer_email", ""),
+            customer_phone=arguments.get("customer_phone", ""),
+        )
+    except ValidationError as exc:
+        return {"error": " ".join(exc.messages)}
+    return {"appointment_id": appointment.id, "start_time": appointment.start_time.isoformat()}
+
+
+def _execute_schedule_follow_up(*, business, agent, conversation, arguments: dict) -> dict:
+    from django.utils.dateparse import parse_datetime
+
+    from apps.appointments.services import schedule_follow_up
+    from apps.leads.services import get_or_create_lead_for_conversation
+
+    due_at = parse_datetime(arguments.get("due_at", ""))
+    if due_at is None:
+        return {"error": "due_at must be a valid ISO 8601 datetime."}
+
+    lead = get_or_create_lead_for_conversation(business=business, agent=agent, conversation=conversation)
+    follow_up = schedule_follow_up(
+        business=business, agent=agent, conversation=conversation, lead=lead,
+        due_at=due_at, reason=arguments.get("reason", ""),
+    )
+    return {"follow_up_id": follow_up.id, "due_at": follow_up.due_at.isoformat()}
+
+
 def _execute_create_ticket(*, business, agent, conversation, arguments: dict) -> dict:
     """No dedicated ticketing system yet (deferred to a later phase) —
     recorded as a lead activity so support requests aren't silently lost,
@@ -97,6 +145,8 @@ _EXECUTORS = {
     "request_demo": _execute_request_demo,
     "request_callback": _execute_request_callback,
     "create_ticket": _execute_create_ticket,
+    "book_appointment": _execute_book_appointment,
+    "schedule_follow_up": _execute_schedule_follow_up,
 }
 
 

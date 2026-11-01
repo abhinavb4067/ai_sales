@@ -1,8 +1,60 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Card from "../../components/Card";
 import { listAgents } from "../../services/agentsApi";
-import { createIntegration, deleteIntegration, listIntegrations } from "../../services/integrationsApi";
+import {
+  completeWhatsAppEmbeddedSignup,
+  createIntegration,
+  deleteIntegration,
+  listIntegrations,
+} from "../../services/integrationsApi";
 import { API_BASE_URL } from "../../services/apiClient";
+
+const META_APP_ID = import.meta.env.VITE_WHATSAPP_META_APP_ID;
+const META_CONFIG_ID = import.meta.env.VITE_WHATSAPP_META_CONFIG_ID;
+
+function loadFacebookSdk(appId) {
+  return new Promise((resolve) => {
+    if (window.FB) {
+      resolve(window.FB);
+      return;
+    }
+    window.fbAsyncInit = function () {
+      window.FB.init({ appId, version: "v19.0" });
+      resolve(window.FB);
+    };
+    const script = document.createElement("script");
+    script.src = "https://connect.facebook.net/en_US/sdk.js";
+    script.async = true;
+    document.body.appendChild(script);
+  });
+}
+
+/** Embedded Signup hands back the WABA/phone number via a postMessage
+ * event (not FB.login's own callback) — this listens for exactly that,
+ * per Meta's documented flow, and ignores anything else on the page. */
+function waitForEmbeddedSignupDetails() {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      window.removeEventListener("message", handler);
+      reject(new Error("Timed out waiting for WhatsApp to confirm the connection."));
+    }, 60000);
+
+    function handler(event) {
+      if (!event.origin.endsWith("facebook.com")) return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "WA_EMBEDDED_SIGNUP" && data.event === "FINISH") {
+          clearTimeout(timeout);
+          window.removeEventListener("message", handler);
+          resolve(data.data);
+        }
+      } catch {
+        // Not a JSON message we understand — ignore, keep listening.
+      }
+    }
+    window.addEventListener("message", handler);
+  });
+}
 
 const EMPTY_FORM = {
   agent: "",
@@ -18,6 +70,9 @@ export default function IntegrationsPage() {
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState("");
+  const [signupAgent, setSignupAgent] = useState("");
+  const [signupBusy, setSignupBusy] = useState(false);
+  const signupCode = useRef(null);
 
   const reload = () => Promise.all([listIntegrations(), listAgents()]).then(([i, a]) => {
     setIntegrations(i);
@@ -29,6 +84,44 @@ export default function IntegrationsPage() {
   }, []);
 
   const handleChange = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const handleEmbeddedSignup = async () => {
+    if (!signupAgent) {
+      setError("Choose which agent should handle this WhatsApp number first.");
+      return;
+    }
+    setError("");
+    setSignupBusy(true);
+    try {
+      const FB = await loadFacebookSdk(META_APP_ID);
+      const detailsPromise = waitForEmbeddedSignupDetails();
+      FB.login(
+        (response) => {
+          signupCode.current = response?.authResponse?.code || null;
+        },
+        {
+          config_id: META_CONFIG_ID,
+          response_type: "code",
+          override_default_response_type: true,
+        }
+      );
+      const details = await detailsPromise;
+      if (!signupCode.current) throw new Error("Facebook login did not return an authorization code.");
+
+      await completeWhatsAppEmbeddedSignup({
+        agentId: signupAgent,
+        code: signupCode.current,
+        wabaId: details.waba_id,
+        phoneNumberId: details.phone_number_id,
+      });
+      await reload();
+    } catch (err) {
+      setError(err.message || err.response?.data?.detail || "Could not complete the WhatsApp connection.");
+    } finally {
+      setSignupBusy(false);
+      signupCode.current = null;
+    }
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -63,7 +156,31 @@ export default function IntegrationsPage() {
       <h1>Integrations</h1>
       <p className="page-subtitle">Connect an agent to an external channel. WhatsApp Cloud API is supported today.</p>
 
-      <Card title="Connect WhatsApp">
+      {META_APP_ID && META_CONFIG_ID && (
+        <Card title="Connect WhatsApp with Facebook">
+          <p className="text-muted">
+            Connect your own WhatsApp Business number in a few clicks — no technical setup required.
+          </p>
+          {error && <div className="form-error">{error}</div>}
+          <div className="form-field">
+            <label className="form-label">Agent to handle this number</label>
+            <select value={signupAgent} onChange={(e) => setSignupAgent(e.target.value)}>
+              <option value="">Select an agent…</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={handleEmbeddedSignup} disabled={signupBusy}>
+            {signupBusy ? "Connecting…" : "Connect with Facebook"}
+          </button>
+        </Card>
+      )}
+
+      <Card title="Connect WhatsApp manually">
+        <p className="text-muted">
+          Already have a WhatsApp Business API account? Paste its credentials directly.
+        </p>
         <form className="agent-form" onSubmit={handleCreate}>
           {error && <div className="form-error">{error}</div>}
           <div className="form-field">

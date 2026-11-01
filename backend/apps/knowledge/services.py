@@ -33,8 +33,15 @@ def _chunk_text(text: str) -> list[str]:
 
 
 def _store_chunks(document: KnowledgeDocument, content: str) -> list[KnowledgeChunk]:
+    from apps.knowledge.vector_store import delete_points_for_document, is_enabled as qdrant_enabled
+
     chunks = _chunk_text(content)
     KnowledgeChunk.objects.filter(document=document).delete()
+    if qdrant_enabled():
+        try:
+            delete_points_for_document(document.id)
+        except Exception:
+            logger.exception("Failed to clear stale Qdrant points for document_id=%s", document.id)
     created = KnowledgeChunk.objects.bulk_create(
         [
             KnowledgeChunk(
@@ -70,11 +77,13 @@ def ingest_manual_text(*, business, agent, title: str, content: str, source_type
     return document
 
 
-def create_pending_document(*, business, agent, title: str, source_type: str, file=None, source_url: str = "") -> KnowledgeDocument:
+def create_pending_document(
+    *, business, agent, title: str, source_type: str, file=None, source_url: str = "", source_config: dict | None = None
+) -> KnowledgeDocument:
     """Creates the document row and returns immediately — the caller
     (view) enqueues the actual Celery processing task with the returned
     document's id. Keeps the HTTP request from blocking on
-    extraction/chunking/embedding for file/URL uploads."""
+    extraction/chunking/embedding for file/URL/API uploads."""
     return KnowledgeDocument.objects.create(
         business=business,
         agent=agent,
@@ -82,6 +91,7 @@ def create_pending_document(*, business, agent, title: str, source_type: str, fi
         title=title,
         file=file,
         source_url=source_url,
+        source_config=source_config or {},
         status=KnowledgeDocument.Status.PENDING,
     )
 
@@ -126,7 +136,7 @@ def _finish_ingestion(document: KnowledgeDocument, content: str) -> None:
 def _generate_embeddings(chunks: list[KnowledgeChunk]) -> None:
     """Best-effort: if no embedding provider is configured (no API key in
     dev), chunks are simply left without embeddings and
-    MySQLKeywordRetriever still works — embeddings only unlock
+    KeywordRetriever still works — embeddings only unlock
     EmbeddingRetriever (see apps.knowledge.retrieval)."""
     from django.conf import settings
 
@@ -142,9 +152,24 @@ def _generate_embeddings(chunks: list[KnowledgeChunk]) -> None:
         logger.exception("Embedding generation failed; falling back to keyword retrieval for these chunks.")
         return
 
+    from django.db import connection
+
+    update_fields = ["embedding"]
     for chunk, vector in zip(chunks, result.vectors):
         chunk.embedding = vector
-    KnowledgeChunk.objects.bulk_update(chunks, ["embedding"])
+        if connection.vendor == "postgresql":
+            chunk.embedding_vector = vector
+    if connection.vendor == "postgresql":
+        update_fields.append("embedding_vector")
+    KnowledgeChunk.objects.bulk_update(chunks, update_fields)
+
+    from apps.knowledge.vector_store import is_enabled as qdrant_enabled, upsert_chunks
+
+    if qdrant_enabled():
+        try:
+            upsert_chunks(chunks, result.vectors)
+        except Exception:
+            logger.exception("Failed to upsert chunks into Qdrant; keyword/in-process retrieval still works.")
 
 
 def retrieve_context(*, business_id, agent_id, query: str, top_k: int = 5) -> list[RetrievedChunk]:

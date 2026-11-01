@@ -1,3 +1,6 @@
+import json
+
+from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.permissions import AllowAny
@@ -97,6 +100,50 @@ def _run_chat(*, business, agent, conversation, message, api_key=None):
     )
 
 
+def _sse_event(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def _stream_chat(*, business, agent, conversation, message, api_key=None):
+    """SSE variant of _run_chat for the website widget.
+
+    The orchestrator (apps.ai.orchestrator.receive_message) must see the
+    model's complete response before tool calls can be validated/executed
+    server-side (apps.ai.tools.service) — so this isn't true token-level
+    provider streaming, it's the already-complete response re-delivered as
+    word-chunked SSE deltas so the widget can render it progressively
+    instead of waiting for one large response. True provider-level
+    streaming would additionally require every AIProvider adapter to
+    expose a streaming generate() and defer tool-call handling until after
+    the stream closes — a larger change than this phase scopes.
+    """
+    turn = run_chat_turn(business=business, agent=agent, conversation=conversation, message=message, api_key=api_key)
+    ai_message = turn.ai_message
+    result = turn.result
+
+    def generate():
+        words = ai_message.content.split(" ")
+        for i, word in enumerate(words):
+            chunk = word if i == len(words) - 1 else word + " "
+            yield _sse_event("delta", {"content": chunk})
+        yield _sse_event(
+            "done",
+            {
+                "conversation_id": conversation.id,
+                "message_id": ai_message.id,
+                "tool_calls": ai_message.tool_calls,
+                "usage": {"input_tokens": result.input_tokens, "output_tokens": result.output_tokens},
+                "conversation_status": conversation.status,
+                "escalated": result.escalated,
+            },
+        )
+
+    response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
 class PlaygroundChatView(APIView):
     """Business-owner-facing "test my agent" endpoint. Uses the exact same
     apps.ai.orchestrator.receive_message() pipeline that production
@@ -182,6 +229,8 @@ class WidgetConfigView(APIView):
 
     def get(self, request, widget_id):
         agent = get_object_or_404(Agent, public_widget_id=widget_id, status=Agent.Status.ACTIVE)
+        if not agent.origin_allowed(request.headers.get("Origin")):
+            return Response({"detail": "Origin not allowed for this widget."}, status=status.HTTP_403_FORBIDDEN)
         return Response(
             {
                 "agent_name": agent.name,
@@ -205,6 +254,8 @@ class WidgetChatView(APIView):
 
     def post(self, request, widget_id):
         agent = get_object_or_404(Agent, public_widget_id=widget_id, status=Agent.Status.ACTIVE)
+        if not agent.origin_allowed(request.headers.get("Origin")):
+            return Response({"detail": "Origin not allowed for this widget."}, status=status.HTTP_403_FORBIDDEN)
         business = agent.business
 
         serializer = WidgetChatRequestSerializer(data=request.data)
@@ -222,4 +273,6 @@ class WidgetChatView(APIView):
                 external_customer_ref=data.get("session_id", ""),
             )
 
+        if data.get("stream"):
+            return _stream_chat(business=business, agent=agent, conversation=conversation, message=data["message"])
         return _run_chat(business=business, agent=agent, conversation=conversation, message=data["message"])

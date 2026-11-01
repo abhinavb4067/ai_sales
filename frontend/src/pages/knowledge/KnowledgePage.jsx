@@ -16,10 +16,11 @@ const FILE_TYPES = [
 
 export default function KnowledgePage() {
   const [documents, setDocuments] = useState([]);
-  const [mode, setMode] = useState("text"); // text | file | url
+  const [mode, setMode] = useState("text"); // text | file | url | api
   const [textForm, setTextForm] = useState(EMPTY_TEXT_FORM);
   const [fileForm, setFileForm] = useState({ title: "", sourceType: "pdf", file: null });
   const [urlForm, setUrlForm] = useState({ title: "", source_url: "" });
+  const [apiForm, setApiForm] = useState({ title: "", source_url: "", accept_header: "application/json" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -79,6 +80,26 @@ export default function KnowledgePage() {
     }
   };
 
+  const handleApiSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSubmitting(true);
+    try {
+      await createKnowledgeEntry({
+        title: apiForm.title,
+        source_type: "api",
+        source_url: apiForm.source_url,
+        source_config: apiForm.accept_header ? { headers: { Accept: apiForm.accept_header } } : {},
+      });
+      setApiForm({ title: "", source_url: "", accept_header: "application/json" });
+      await reload();
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this knowledge entry?")) return;
     await deleteKnowledgeEntry(id);
@@ -104,6 +125,9 @@ export default function KnowledgePage() {
             </button>
             <button className={`tab ${mode === "url" ? "active" : ""}`} onClick={() => setMode("url")} type="button">
               Website URL
+            </button>
+            <button className={`tab ${mode === "api" ? "active" : ""}`} onClick={() => setMode("api")} type="button">
+              External API
             </button>
           </div>
         }
@@ -180,6 +204,36 @@ export default function KnowledgePage() {
             <Button type="submit" disabled={submitting}>
               {submitting ? "Fetching…" : "Fetch & Process"}
             </Button>
+          </form>
+        )}
+
+        {mode === "api" && (
+          <form onSubmit={handleApiSubmit} className="knowledge-form">
+            <FormField label="Title">
+              <input required value={apiForm.title} onChange={(e) => setApiForm({ ...apiForm, title: e.target.value })} />
+            </FormField>
+            <FormField label="API endpoint URL (public, read-only, no secret key required)">
+              <input
+                type="url"
+                required
+                placeholder="https://api.example.com/products"
+                value={apiForm.source_url}
+                onChange={(e) => setApiForm({ ...apiForm, source_url: e.target.value })}
+              />
+            </FormField>
+            <FormField label="Accept header">
+              <input
+                value={apiForm.accept_header}
+                onChange={(e) => setApiForm({ ...apiForm, accept_header: e.target.value })}
+              />
+            </FormField>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Fetching…" : "Fetch & Process"}
+            </Button>
+            <p className="text-muted">
+              Only public endpoints are supported today — internal/private network addresses are always blocked.
+              Endpoints requiring a secret API key aren't supported yet.
+            </p>
           </form>
         )}
       </Card>

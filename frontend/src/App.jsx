@@ -16,6 +16,7 @@ import ApiKeysPage from "./pages/settings/ApiKeysPage";
 import BillingPage from "./pages/billing/BillingPage";
 import IntegrationsPage from "./pages/settings/IntegrationsPage";
 import TeamPage from "./pages/team/TeamPage";
+import AnalyticsPage from "./pages/analytics/AnalyticsPage";
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="/billing" element={<BillingPage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/team" element={<TeamPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
           </Route>
         </Route>
 

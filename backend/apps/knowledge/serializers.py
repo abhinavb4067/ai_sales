@@ -23,7 +23,7 @@ class KnowledgeDocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = KnowledgeDocument
         fields = [
-            "id", "agent", "source_type", "title", "content", "file", "source_url",
+            "id", "agent", "source_type", "title", "content", "file", "source_url", "source_config",
             "status", "failure_reason", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "status", "failure_reason", "created_at", "updated_at"]
@@ -56,9 +56,16 @@ class KnowledgeDocumentSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"file": f"Expected a {source_type} file but got {getattr(file_obj, 'content_type', 'unknown')}."}
                 )
-        elif source_type == KnowledgeDocument.SourceType.URL:
+        elif source_type in (KnowledgeDocument.SourceType.URL, KnowledgeDocument.SourceType.API):
             if not attrs.get("source_url", "").strip():
                 raise serializers.ValidationError({"source_url": "This field may not be blank."})
+            if source_type == KnowledgeDocument.SourceType.API:
+                config = attrs.get("source_config") or {}
+                if not isinstance(config, dict):
+                    raise serializers.ValidationError({"source_config": "Must be an object."})
+                headers = config.get("headers", {})
+                if not isinstance(headers, dict) or not all(isinstance(v, str) for v in headers.values()):
+                    raise serializers.ValidationError({"source_config": "headers must be a flat object of strings."})
         else:
             raise serializers.ValidationError({"source_type": "Unsupported source type."})
 
