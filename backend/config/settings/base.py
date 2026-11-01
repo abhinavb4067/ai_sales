@@ -202,6 +202,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.appointments.tasks.flag_overdue_follow_ups",
         "schedule": 60 * 30,  # every 30 minutes
     },
+    "expire-lapsed-trials": {
+        "task": "apps.billing.tasks.expire_lapsed_trials",
+        "schedule": 60 * 60,  # hourly
+    },
+    "flag-past-due-subscriptions": {
+        "task": "apps.billing.tasks.flag_past_due_subscriptions",
+        "schedule": 60 * 60,  # hourly
+    },
 }
 
 CHANNELS_REDIS_URL = env("CHANNELS_REDIS_URL", default="redis://127.0.0.1:6379/2")

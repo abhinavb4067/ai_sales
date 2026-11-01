@@ -41,7 +41,7 @@ Master spec section 25 requirements and where they're satisfied:
 | Secure PostgreSQL | Use a managed Postgres instance (e.g. RDS/Cloud SQL/Supabase) with the `vector` extension enabled and TLS-enforced connections, not a self-hosted container, in production — `scripts/setup_postgres.sql` is the dev provisioning equivalent |
 | Redis protected from public access | Use a managed Redis instance or bind it to a private network only — never expose port 6379 publicly (the Compose file's published port is dev-only) |
 | Private object storage | Set `STORAGE_BACKEND`/`STORAGE_BUCKET`/etc. in `.env` to an S3-compatible provider (Cloudflare R2, S3) — see `apps/core/storage.py` |
-| Environment/secrets management | Inject `backend/.env` values via your platform's secrets manager, never commit them |
+| Environment/secrets management | Inject `backend/.env` values via your platform's secrets manager, never commit them. `config.settings.prod` refuses to start if `DJANGO_SECRET_KEY`/`FIELD_ENCRYPTION_KEY` are still the insecure dev defaults, so a misconfigured deploy fails loudly instead of running with weak secrets |
 | Database backups + tested restore | `backend/scripts/backup_postgres.sh` / `restore_postgres.sh` — see below |
 | Structured logs | Already configured, `config/settings/base.py LOGGING` (secret-redacting filter) |
 | Monitoring/alerting | Optional Sentry wiring — set `SENTRY_DSN` (see `.env.example`); nothing is sent unless configured |

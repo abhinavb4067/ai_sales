@@ -102,6 +102,22 @@ class DocumentUploadApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_pdf_upload_rejected_when_content_does_not_match_magic_bytes(self):
+        fake_pdf = SimpleUploadedFile("fake.pdf", b"this is not a real pdf", content_type="application/pdf")
+        response = self.client_auth.post(
+            "/api/v1/knowledge/", {"title": "Fake PDF", "source_type": "pdf", "file": fake_pdf}, format="multipart"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("apps.knowledge.tasks.process_document_task.delay")
+    def test_pdf_upload_accepted_with_correct_magic_bytes(self, mock_delay):
+        real_pdf_header = b"%PDF-1.4\n%fake but correct header"
+        upload = SimpleUploadedFile("real.pdf", real_pdf_header, content_type="application/pdf")
+        response = self.client_auth.post(
+            "/api/v1/knowledge/", {"title": "Real PDF", "source_type": "pdf", "file": upload}, format="multipart"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
     def test_oversized_file_rejected(self):
         big_content = b"x" * (16 * 1024 * 1024)
         upload = SimpleUploadedFile("big.txt", big_content, content_type="text/plain")

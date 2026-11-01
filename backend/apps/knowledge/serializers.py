@@ -22,6 +22,27 @@ ALLOWED_UPLOAD_CONTENT_TYPES = {
 }
 REQUIRED_DB_CREDENTIAL_KEYS = {"dialect", "host", "database", "user", "password", "table"}
 
+# Magic-byte signatures — the client-reported Content-Type header
+# (checked below) is trivially spoofable, so this is the real check that
+# an uploaded file actually is what its source_type claims. TXT/CSV have
+# no reliable magic bytes and are intentionally not checked here — their
+# risk is already bounded by size limit + being parsed as plain text,
+# never executed.
+FILE_SIGNATURES = {
+    "pdf": (b"%PDF",),
+    "docx": (b"PK\x03\x04",),  # docx is a zip container
+}
+
+
+def _has_valid_signature(file_obj, source_type: str) -> bool:
+    signatures = FILE_SIGNATURES.get(source_type)
+    if not signatures:
+        return True
+    file_obj.seek(0)
+    header = file_obj.read(8)
+    file_obj.seek(0)
+    return any(header.startswith(sig) for sig in signatures)
+
 
 class KnowledgeDocumentSerializer(serializers.ModelSerializer):
     # Write-only — mirrors apps.integrations.serializers.IntegrationSerializer's
@@ -65,6 +86,10 @@ class KnowledgeDocumentSerializer(serializers.ModelSerializer):
             if allowed_types and getattr(file_obj, "content_type", None) not in allowed_types:
                 raise serializers.ValidationError(
                     {"file": f"Expected a {source_type} file but got {getattr(file_obj, 'content_type', 'unknown')}."}
+                )
+            if not _has_valid_signature(file_obj, source_type):
+                raise serializers.ValidationError(
+                    {"file": f"File content does not match the expected {source_type} format."}
                 )
         elif source_type in (KnowledgeDocument.SourceType.URL, KnowledgeDocument.SourceType.API):
             if not attrs.get("source_url", "").strip():
