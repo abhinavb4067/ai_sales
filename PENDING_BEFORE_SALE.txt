@@ -1,0 +1,113 @@
+ECTAMA — WHAT'S PENDING BEFORE THIS PRODUCT CAN BE SOLD
+=========================================================
+Last updated: 2026-11-01
+
+This lists what still needs to happen before Ectama is ready to sell to
+real paying customers. Everything NOT listed here (foundation, agents,
+knowledge/RAG with native Postgres pgvector, AI engine, website widget,
+WhatsApp text/media/templates/Embedded Signup, CRM leads/appointments/
+follow-ups, billing, Super Admin, analytics + CSAT, outbound webhooks,
+Docker deployment, backups) is built and covered by automated tests
+(231 passing). The items below split into two kinds: things that need
+YOUR action (accounts, money, legal sign-off) and things that are
+pure engineering work still to be done.
+
+---------------------------------------------------------------------
+PART 1 — NEEDS YOU (accounts, credentials, money, legal/compliance)
+---------------------------------------------------------------------
+
+1. Production infrastructure
+   - A real Postgres database (managed — RDS/Cloud SQL/Supabase) with
+     the pgvector extension enabled. Only tested so far against a
+     throwaway local Docker container, never a production-grade host.
+   - A real Redis instance (managed or self-hosted, privately networked).
+   - Object storage (S3 or Cloudflare R2) for knowledge document
+     uploads — currently only wired for local disk storage in dev.
+   - A domain + TLS certificate, and a reverse proxy/load balancer in
+     front of the Docker containers (Dockerfiles exist; nothing is
+     deployed anywhere yet).
+
+2. Payments
+   - A real Razorpay business account, approved and verified by
+     Razorpay. The integration code is built and unit-tested with mocks,
+     but has never processed one real transaction.
+   - Decide and set real pricing/plans (the seeded "Starter" plan is a
+     placeholder).
+
+3. WhatsApp
+   - A real Meta Business App, reviewed/approved by Meta, with
+     Embedded Signup configured (App ID, App Secret, Config ID).
+   - At least one approved message template (required to message a
+     customer outside the 24-hour session window — e.g. appointment
+     reminders). Template approval is a Meta review process, not
+     something this code can do for you.
+   - This has never been exercised end-to-end against a live WhatsApp
+     Business Account — only mocked in tests.
+
+4. Legal / compliance
+   - Terms of Service, Privacy Policy, and a Data Processing Agreement
+     for business customers (none exist yet — required before
+     onboarding real customers and their customers' data).
+   - GDPR/India DPDP-style data handling review: data retention periods,
+     right-to-delete flow, what's logged and for how long.
+   - If voice/calling is ever added: TRAI/DLT registration and
+     commercial-communication compliance (India) before any outbound
+     calling — explicitly NOT done, see Part 2.
+   - Decide what counts as a "monthly message" for billing purposes and
+     whether that matches what you tell customers.
+
+5. Support & operations readiness
+   - Who answers support tickets / handles a business's first week.
+   - An on-call/incident process — nothing paged tonight if the service
+     goes down; Sentry is wired but not pointed at a real DSN, and
+     nobody is subscribed to alerts yet.
+   - A status page / uptime communication plan for customers.
+
+---------------------------------------------------------------------
+PART 2 — ENGINEERING WORK STILL TO DO (no external help needed, just time)
+---------------------------------------------------------------------
+
+1. Load testing
+   - Never load-tested. Don't know actual capacity, where the first
+     bottleneck is (likely the AI provider's own rate limits, or the
+     DB), or whether current Celery worker counts are adequate.
+
+2. Formal security review / pen-test
+   - A self-review pass was done (fixed: file upload signature
+     validation, insecure production-secret defaults) and Django's own
+     --deploy checklist passes clean, but no independent penetration
+     test or professional security audit has been performed. Expected
+     before handling real customer/business data at any scale.
+
+3. Voice / telephony
+   - Entirely unbuilt: no SIP adapter, no inbound/outbound calling, no
+     call recording/transcription, no call records. This is a distinct
+     milestone, not a small add-on, and is blocked on Part 1 item 4
+     above (compliance) regardless of engineering effort.
+
+4. Operational polish
+   - No admin-facing way to adjust plan pricing/limits without using
+     Django admin directly.
+   - No customer-facing status/uptime page.
+   - No automated monitoring dashboards beyond the one /health/
+     endpoint and optional Sentry error capture.
+   - No documented incident-response runbook.
+
+5. Things explicitly scoped out, worth knowing about
+   - External DB knowledge sources only support a single pre-approved
+     table (by design, for security) — no joins/filters.
+   - Outbound webhooks and CSAT were just added and have no real-world
+     traffic through them yet.
+   - Super Admin has no audit log of its own actions (who suspended
+     which business and when).
+
+---------------------------------------------------------------------
+BOTTOM LINE
+---------------------------------------------------------------------
+The product is feature-complete and tested for a first commercial
+pilot IF you're comfortable running it with: a small number of
+trusted/friendly customers, no voice channel, manual plan/pricing
+management, and you personally handling support. Selling it broadly
+(self-serve signups from strangers, real money, WhatsApp at scale)
+needs Part 1 done in full and at least load testing + a real security
+review from Part 2 first.
